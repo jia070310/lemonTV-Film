@@ -65,7 +65,7 @@ export function Layout() {
 
       const isInSidebar = sidebarEl.contains(activeEl)
 
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' && isInSidebar) {
         e.preventDefault()
         setFocusedIndex(prev => {
           const next = Math.min(navItems.length - 1, prev + 1)
@@ -73,7 +73,7 @@ export function Layout() {
           btn?.focus()
           return next
         })
-      } else if (e.key === 'ArrowUp') {
+      } else if (e.key === 'ArrowUp' && isInSidebar) {
         e.preventDefault()
         setFocusedIndex(prev => {
           const next = Math.max(0, prev - 1)
@@ -82,10 +82,16 @@ export function Layout() {
           return next
         })
       } else if (e.key === 'ArrowRight' && isInSidebar) {
-        // Move focus to main content area
-        const mainContent = document.getElementById('tv-main-content')
-        const firstFocusable = mainContent?.querySelector('[tabindex="0"]') as HTMLElement
-        firstFocusable?.focus()
+        e.preventDefault()
+        // Move focus to home page first hero poster if available
+        const firstPoster = document.getElementById('home-first-poster')
+        if (firstPoster) {
+          firstPoster.focus()
+        } else {
+          const mainContent = document.getElementById('tv-main-content')
+          const firstFocusable = mainContent?.querySelector('[tabindex="0"]') as HTMLElement
+          firstFocusable?.focus()
+        }
       } else if (e.key === 'Enter' && isInSidebar) {
         e.preventDefault()
         navigate(navItems[focusedIndex].path)
@@ -101,7 +107,7 @@ export function Layout() {
       {/* Left Sidebar */}
       <aside
         id="tv-sidebar"
-        className="w-[260px] h-full bg-card border-r border-border flex flex-col flex-shrink-0 select-none"
+        className="w-[173px] h-full bg-card border-r border-border flex flex-col flex-shrink-0 select-none"
       >
         {/* Logo */}
         <div className="p-6 pb-4">
@@ -152,7 +158,7 @@ export function Layout() {
       {/* Main Content */}
       <main
         id="tv-main-content"
-        className="flex-1 h-full overflow-hidden"
+        className="flex-1 h-full overflow-y-auto no-scrollbar"
       >
         <Outlet />
       </main>
