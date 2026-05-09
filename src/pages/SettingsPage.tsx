@@ -1,0 +1,219 @@
+import { useState } from 'react'
+import { cn } from '@/lib/utils'
+import {
+  Play,
+  Monitor,
+  HardDrive,
+  Info,
+  Check,
+} from 'lucide-react'
+
+interface SwitchProps {
+  checked: boolean
+  onChange: (v: boolean) => void
+}
+
+function TvSwitch({ checked, onChange }: SwitchProps) {
+  return (
+    <button
+      className={cn(
+        'tv-focusable relative w-12 h-7 rounded-full transition-all duration-300 outline-none',
+        checked ? 'bg-primary' : 'bg-muted'
+      )}
+      tabIndex={0}
+      onClick={() => onChange(!checked)}
+      onKeyDown={(e) => { if (e.key === 'Enter') onChange(!checked) }}
+    >
+      <div
+        className={cn(
+          'absolute top-0.5 w-6 h-6 rounded-full bg-foreground shadow-md transition-all duration-300',
+          checked ? 'left-[calc(100%-26px)]' : 'left-0.5'
+        )}
+      />
+    </button>
+  )
+}
+
+interface SelectOptionProps {
+  options: string[]
+  value: string
+  onChange: (v: string) => void
+}
+
+function TvSelect({ options, value, onChange }: SelectOptionProps) {
+  return (
+    <div className="flex gap-2 flex-wrap">
+      {options.map(opt => (
+        <button
+          key={opt}
+          className={cn(
+            'tv-focusable pill-focus px-4 py-1.5 rounded-full text-sm transition-all',
+            value === opt
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
+          )}
+          tabIndex={0}
+          onClick={() => onChange(opt)}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+interface SettingItemProps {
+  icon: React.ReactNode
+  title: string
+  description?: string
+  children: React.ReactNode
+}
+
+function SettingItem({ icon, title, description, children }: SettingItemProps) {
+  return (
+    <div className="flex items-start justify-between gap-6 py-5 border-b border-border last:border-none">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0 text-muted-foreground">
+          {icon}
+        </div>
+        <div>
+          <h4 className="text-base font-medium text-foreground">{title}</h4>
+          {description && (
+            <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex-shrink-0 mt-1">{children}</div>
+    </div>
+  )
+}
+
+export function SettingsPage() {
+  const [autoSkip, setAutoSkip] = useState(true)
+  const [autoPlayNext, setAutoPlayNext] = useState(true)
+  const [defaultSpeed, setDefaultSpeed] = useState('1.0x')
+  const [defaultQuality, setDefaultQuality] = useState('高清')
+  const [showCleared, setShowCleared] = useState(false)
+
+  const handleClearCache = () => {
+    setShowCleared(true)
+    setTimeout(() => setShowCleared(false), 2000)
+  }
+
+  return (
+    <div className="h-full flex flex-col bg-background overflow-hidden p-8">
+      <h2 className="text-3xl font-bold text-foreground mb-8">设置</h2>
+
+      <div className="flex-1 overflow-y-auto thin-scrollbar">
+        {/* Playback Settings */}
+        <div className="bg-card rounded-2xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Play size={20} className="text-primary" />
+            <h3 className="text-lg font-bold text-foreground">播放设置</h3>
+          </div>
+          <SettingItem
+            icon={<Play size={18} />}
+            title="自动跳过片头片尾"
+            description="播放时自动跳过片头片尾"
+          >
+            <TvSwitch checked={autoSkip} onChange={setAutoSkip} />
+          </SettingItem>
+          <SettingItem
+            icon={<Monitor size={18} />}
+            title="自动播放下一集"
+            description="当前集播放结束后自动继续"
+          >
+            <TvSwitch checked={autoPlayNext} onChange={setAutoPlayNext} />
+          </SettingItem>
+          <SettingItem
+            icon={<Monitor size={18} />}
+            title="默认倍速"
+            description="新播放的默认播放速度"
+          >
+            <TvSelect
+              options={['0.5x', '1.0x', '1.25x', '1.5x', '2.0x']}
+              value={defaultSpeed}
+              onChange={setDefaultSpeed}
+            />
+          </SettingItem>
+        </div>
+
+        {/* Quality Settings */}
+        <div className="bg-card rounded-2xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Monitor size={20} className="text-primary" />
+            <h3 className="text-lg font-bold text-foreground">画质设置</h3>
+          </div>
+          <SettingItem
+            icon={<Monitor size={18} />}
+            title="默认清晰度"
+            description="优先使用的视频清晰度"
+          >
+            <TvSelect
+              options={['标清', '高清', '超清', '蓝光']}
+              value={defaultQuality}
+              onChange={setDefaultQuality}
+            />
+          </SettingItem>
+        </div>
+
+        {/* Cache Management */}
+        <div className="bg-card rounded-2xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <HardDrive size={20} className="text-primary" />
+            <h3 className="text-lg font-bold text-foreground">缓存管理</h3>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground">
+                <HardDrive size={18} />
+              </div>
+              <div>
+                <h4 className="text-base font-medium text-foreground">清除缓存</h4>
+                <p className="text-sm text-muted-foreground">清除本地图片和配置缓存</p>
+              </div>
+            </div>
+            <button
+              className={cn(
+                'tv-focusable pill-focus px-5 py-2 rounded-full text-sm font-medium transition-all',
+                showCleared
+                  ? 'bg-green-500 text-white'
+                  : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
+              )}
+              tabIndex={0}
+              onClick={handleClearCache}
+            >
+              {showCleared ? (
+                <span className="flex items-center gap-1"><Check size={14} /> 已清除</span>
+              ) : (
+                '清除缓存'
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* About */}
+        <div className="bg-card rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Info size={20} className="text-primary" />
+            <h3 className="text-lg font-bold text-foreground">关于</h3>
+          </div>
+          <div className="py-2 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">应用名称</span>
+              <span className="text-sm text-foreground font-medium">柠檬影视 TV</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">版本号</span>
+              <span className="text-sm text-foreground font-medium">v1.0.0</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">开发团队</span>
+              <span className="text-sm text-foreground font-medium">Lemon Team</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

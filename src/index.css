@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Lemon TV Dark Theme */
+    --background: 0 0% 6%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 52 97% 52%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 52 97% 52%;
+    --radius: 0.75rem;
+
+    /* Custom Lemon Tokens */
+    --lemon: 52 97% 52%;
+    --lemon-glow: 52 100% 65%;
+    --surface: 0 0% 10%;
+    --surface-hover: 0 0% 14%;
+
+    /* Gradients */
+    --gradient-top-bar: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 60%, transparent 100%);
+    --gradient-bottom-bar: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 60%, transparent 100%);
+    --gradient-card-overlay: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.2) 40%, transparent 70%);
+    --gradient-hero: linear-gradient(90deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 40%, transparent 70%);
+
+    /* Shadows */
+    --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+    --shadow-focus: 0 0 0 3px hsl(52 97% 52% / 0.8), 0 0 20px hsl(52 97% 52% / 0.3);
+    --shadow-glow: 0 0 30px hsl(52 97% 52% / 0.4);
+    --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    overflow: hidden;
+  }
+
+  /* TV Focus Ring System */
+  .tv-focusable {
+    @apply outline-none transition-all duration-300;
+    transition-timing-function: cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  .tv-focusable:focus-visible {
+    box-shadow: var(--shadow-focus);
+    transform: scale(1.05);
+    z-index: 20;
+  }
+
+  .tv-focusable.tv-focus-yellow:focus-visible {
+    background-color: hsl(var(--lemon));
+    color: hsl(var(--primary-foreground));
+  }
+
+  /* Poster card focus */
+  .poster-focus:focus-visible {
+    outline: 3px solid hsl(var(--lemon));
+    outline-offset: 3px;
+    transform: scale(1.08);
+    z-index: 20;
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* Pill button focus */
+  .pill-focus:focus-visible {
+    background-color: hsl(var(--lemon));
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-glow);
+    transform: scale(1.05);
+  }
+
+  /* Tab focus */
+  .tab-focus:focus-visible {
+    background-color: hsl(var(--lemon));
+    color: hsl(var(--primary-foreground));
+    transform: scale(1.05);
+  }
+
+  /* Hide scrollbar */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Custom scrollbar for visible areas */
+  .thin-scrollbar::-webkit-scrollbar { width: 4px; }
+  .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .thin-scrollbar::-webkit-scrollbar-thumb { background: hsl(var(--muted)); border-radius: 10px; }
+}
+
+@layer components {
+  /* Gradient overlays */
+  .gradient-top {
+    background: var(--gradient-top-bar);
+  }
+  .gradient-bottom {
+    background: var(--gradient-bottom-bar);
+  }
+  .gradient-card {
+    background: var(--gradient-card-overlay);
+  }
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  /* TV card elevation */
+  .tv-card {
+    @apply rounded-lg overflow-hidden transition-all duration-300;
+    box-shadow: var(--shadow-card);
+  }
+  .tv-card:hover, .tv-card:focus-within {
+    box-shadow: var(--shadow-elevated);
+    transform: translateY(-4px);
+  }
+}
+
+@layer utilities {
+  /* Animations */
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.85); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out forwards;
+  }
+  .animate-scale-in {
+    animation: scale-in 0.3s ease-out forwards;
+  }
+}

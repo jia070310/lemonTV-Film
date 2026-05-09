@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+
+# Build outputs
+dist
+dist-ssr
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+android/captures
+
+# IDE
+.idea
+.vscode
+*.iml
+
+# OS
+.DS_Store
+*.local
+
+# Misc
+nul
+vibe_images
+*.png
+*.html
+!public/images/*.png
+!index.html
+
+# TypeScript
+*.tsbuildinfo
