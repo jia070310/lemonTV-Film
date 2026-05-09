@@ -34,6 +34,14 @@ import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import com.lomen.tv.ui.components.WhitePillToast
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
 
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
@@ -77,11 +85,32 @@ fun LomenTVNavigation(
     // 使用 remember 确保APP进程重启后状态重置
     var hasAutoNavigatedToLive by remember { mutableStateOf(false) }
     
-    NavHost(
-        navController = navController,
-        startDestination = Screen.Home.route
-    ) {
-        composable(Screen.Home.route) {
+    val syncState by sharedMediaSyncViewModel.syncState.collectAsState()
+    var globalToastMessage by remember { mutableStateOf<String?>(null) }
+    var toastNonce by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(syncState) {
+        if (syncState is MediaSyncViewModel.SyncState.Completed) {
+            // 立刻消费 Completed，避免后续进入某些页面才“补弹”
+            sharedMediaSyncViewModel.resetState()
+            toastNonce++
+        }
+    }
+
+    LaunchedEffect(toastNonce) {
+        if (toastNonce == 0) return@LaunchedEffect
+        globalToastMessage = "刮削完成"
+        delay(2000)
+        // 只有当前这次 nonce 仍是最新才清理，避免连续完成时被前一次提前清掉
+        globalToastMessage = null
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Home.route
+        ) {
+            composable(Screen.Home.route) {
             val homeViewModel: com.lomen.tv.ui.screens.home.HomeViewModel = hiltViewModel()
             
             // 自动进入直播 - 只在首次显示Home且设置开启时跳转
@@ -135,9 +164,9 @@ fun LomenTVNavigation(
                 resourceLibraryViewModel = sharedResourceLibraryViewModel,
                 mediaSyncViewModel = sharedMediaSyncViewModel
             )
-        }
+            }
         
-        composable(Screen.Library.route) {
+            composable(Screen.Library.route) {
             val libraryContext = LocalContext.current
             LibraryScreen(
                 onNavigateBack = {
@@ -149,7 +178,7 @@ fun LomenTVNavigation(
             )
         }
 
-        composable(Screen.ResourceLibrary.route) {
+            composable(Screen.ResourceLibrary.route) {
             val libraries = sharedResourceLibraryViewModel.resourceLibraries.collectAsState()
             val currentLibraryId = sharedResourceLibraryViewModel.currentLibraryId.collectAsState()
             ResourceLibraryScreen(
@@ -161,9 +190,13 @@ fun LomenTVNavigation(
                     navController.popBackStack()
                 },
                 onLibrarySelected = { library ->
-                    sharedResourceLibraryViewModel.setCurrentLibrary(library.id)
-                    // 触发增量同步（只刮削新增和修改的文件）
-                    sharedMediaSyncViewModel.syncLibraryIncremental(library)
+                    runCatching {
+                        sharedResourceLibraryViewModel.setCurrentLibrary(library.id)
+                        // 触发增量同步（只刮削新增和修改的文件）
+                        sharedMediaSyncViewModel.syncLibraryIncremental(library)
+                    }.onFailure { e ->
+                        android.util.Log.e("LomenTVNavigation", "选择资源库并触发同步失败", e)
+                    }
                 },
                 onSyncComplete = {
                     // 刮削完成后不自动返回，停留在资源库页面
@@ -180,11 +213,12 @@ fun LomenTVNavigation(
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
-                }
+                },
+                resourceLibraryViewModel = sharedResourceLibraryViewModel
             )
         }
         
-        composable(Screen.Search.route) {
+            composable(Screen.Search.route) {
             SearchScreen(
                 onNavigateBack = {
                     navController.popBackStack()
@@ -195,7 +229,7 @@ fun LomenTVNavigation(
             )
         }
         
-        composable(
+            composable(
             route = "settings?libraryId={libraryId}",
             arguments = listOf(
                 navArgument("libraryId") { 
@@ -219,7 +253,7 @@ fun LomenTVNavigation(
             )
         }
         
-        composable(
+            composable(
             route = Screen.Detail.route,
             arguments = listOf(
                 navArgument("mediaId") { type = NavType.StringType }
@@ -247,7 +281,7 @@ fun LomenTVNavigation(
             )
         }
         
-        composable(
+            composable(
             route = Screen.Category.route,
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType }
@@ -271,7 +305,7 @@ fun LomenTVNavigation(
             )
         }
 
-        composable(Screen.RecentWatching.route) {
+            composable(Screen.RecentWatching.route) {
             val recentContext = LocalContext.current
             val homeViewModel: HomeViewModel = hiltViewModel()
             RecentWatchingScreen(
@@ -298,11 +332,19 @@ fun LomenTVNavigation(
             )
         }
 
-        composable(Screen.Live.route) {
+            composable(Screen.Live.route) {
             LiveScreen(
                 onNavigateBack = {
                     navController.popBackStack()
                 }
+            )
+        }
+        }
+
+        if (globalToastMessage != null) {
+            WhitePillToast(
+                message = globalToastMessage!!,
+                icon = Icons.Default.CheckCircle
             )
         }
     }

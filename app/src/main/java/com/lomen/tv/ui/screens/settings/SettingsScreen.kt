@@ -140,6 +140,7 @@ fun SettingsScreen(
     var showWebDavDialog by remember { mutableStateOf(false) }
     var showWebDavPostAddHint by remember { mutableStateOf(false) }
     var showEditWebDavDialog by remember { mutableStateOf(libraryToEdit != null) }
+    var showGuangyaDialog by remember { mutableStateOf(false) }
     
     // 焦点管理
     val sidebarFocusRequester = remember { FocusRequester() }
@@ -206,6 +207,7 @@ fun SettingsScreen(
             SettingsContent(
                 selectedCategory = selectedCategory,
                 onShowWebDavDialog = { showWebDavDialog = true },
+                onShowGuangyaDialog = { showGuangyaDialog = true },
                 onShowSortDialog = { showSortDialog = true },
                 onShowClassificationStrategyDialog = { showClassificationStrategyDialog = true },
                 onShowClearCacheDialog = { showClearCacheDialog = true },
@@ -248,6 +250,38 @@ fun SettingsScreen(
                     sharedResourceLibraryViewModel.addLibrary(newLibrary)
                     showWebDavDialog = false
                     showWebDavPostAddHint = true
+                }
+            )
+        }
+
+        // 光鸭云盘配置：官方网页二维码扫码登录 -> 目录选择 -> 回调入库
+        if (showGuangyaDialog) {
+            GuangyaLoginDialog(
+                onDismiss = { showGuangyaDialog = false },
+                onSuccess = { result ->
+                    val picked = result.selectedPaths.firstOrNull().orEmpty()
+                    val suffix = picked
+                        .takeIf { it.isNotBlank() && it != "/" }
+                        ?.trimEnd('/')
+                        ?.substringAfterLast('/')
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { " - $it" }
+                        .orEmpty()
+                    val newLibrary = ResourceLibrary(
+                        id = UUID.randomUUID().toString(),
+                        name = "光鸭云盘$suffix",
+                        type = ResourceLibrary.LibraryType.GUANGYA,
+                        apiToken = result.accessToken,
+                        apiRefreshToken = result.refreshToken,
+                        apiTokenExpireAt = result.accessExpireAt,
+                        guangyaLoginMode = result.guangyaLoginMode,
+                        guangyaDeviceId = result.guangyaDeviceId,
+                        selectedPaths = result.selectedPaths,
+                        isActive = true
+                    )
+                    sharedResourceLibraryViewModel.addLibrary(newLibrary)
+                    showGuangyaDialog = false
+                    showSuccessMessage = "成功添加光鸭云盘资源库"
                 }
             )
         }
@@ -318,12 +352,9 @@ fun SettingsScreen(
     val syncState by mediaSyncViewModel.syncState.collectAsState()
     val syncProgress by mediaSyncViewModel.syncProgress.collectAsState()
     
-    // 刮削完成后显示提示
+    // 刮削完成提示已改为全局提示（导航根部统一弹窗），这里仅处理错误提示。
     LaunchedEffect(syncState) {
-        if (syncState is com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Completed) {
-            showSuccessMessage = "刮削完成"
-            mediaSyncViewModel.resetState()
-        } else if (syncState is com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Error) {
+        if (syncState is com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Error) {
             val error = (syncState as com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Error).message
             if (error == TmdbApiPreferences.MSG_TMDB_REQUIRED_FOR_SCAN) {
                 showTmdbScanPill = true
@@ -692,6 +723,7 @@ private fun SettingsSidebar(
 private fun SettingsContent(
     selectedCategory: Int,
     onShowWebDavDialog: () -> Unit,
+    onShowGuangyaDialog: () -> Unit,
     onShowSortDialog: () -> Unit,
     onShowClassificationStrategyDialog: () -> Unit,
     onShowClearCacheDialog: () -> Unit,
@@ -740,6 +772,7 @@ private fun SettingsContent(
                         SectionTitle(title = "资源导入", accentColor = PrimaryYellow)
                         Spacer(modifier = Modifier.height(16.dp.scale(s)))
                         ResourceImportSection(
+                            onShowGuangyaDialog = onShowGuangyaDialog,
                             onShowWebDavDialog = onShowWebDavDialog
                         )
                     }
@@ -822,6 +855,7 @@ private fun SectionTitle(title: String, accentColor: Color) {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ResourceImportSection(
+    onShowGuangyaDialog: () -> Unit,
     onShowWebDavDialog: () -> Unit
 ) {
     val s = LocalCompactUiScale.current
@@ -833,9 +867,9 @@ private fun ResourceImportSection(
             icon = Icons.Default.CloudUpload,
             iconBackgroundColor = Color.White.copy(alpha = 0.4f),
             iconTint = Color(0xFF60a5fa),
-            title = "连通网盘",
+            title = "添加光鸭云盘",
             subtitle = "支持二级文件夹扫描与极速预览",
-            onClick = { /* TODO: 网盘配置 */ },
+            onClick = onShowGuangyaDialog,
             modifier = Modifier.weight(1f),
             isFirstItem = true
         )
@@ -2767,37 +2801,14 @@ private fun ClassificationStrategyDialog(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SuccessToast(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        Card(
-            onClick = {},
-            colors = CardDefaults.colors(
-                containerColor = Color(0xFF10b981),
-                focusedContainerColor = Color(0xFF10b981)
-            ),
-            modifier = Modifier.padding(bottom = 100.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White
-                )
-            }
-        }
-    }
+    com.lomen.tv.ui.components.WhitePillToast(
+        message = message,
+        icon = Icons.Default.Info,
+        bottomPadding = 100.dp,
+        backgroundAlpha = 0.75f,
+        iconTint = Color.Black,
+        textColor = Color.Black
+    )
 }
 
 /**

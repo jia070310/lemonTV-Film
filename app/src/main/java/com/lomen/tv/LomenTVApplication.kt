@@ -4,6 +4,7 @@ import android.content.Context
 import com.lomen.tv.data.preferences.MediaClassificationPreferences
 import com.lomen.tv.data.preferences.MediaClassificationStrategyHolder
 import com.lomen.tv.domain.service.AppUpdateService
+import com.lomen.tv.domain.service.GuangyaTokenAutoRefresh
 import com.lomen.tv.domain.service.PlaybackStatsService
 import com.lomen.tv.domain.service.TmdbMetadataSyncManager
 import dagger.hilt.android.HiltAndroidApp
@@ -31,9 +32,13 @@ class LomenTVApplication : android.app.Application() {
     @Inject
     lateinit var tmdbMetadataSyncManager: TmdbMetadataSyncManager
 
+    @Inject
+    lateinit var guangyaTokenAutoRefresh: GuangyaTokenAutoRefresh
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        guangyaTokenAutoRefresh.start()
         runBlocking {
             val strategy = mediaClassificationPreferences.classificationStrategy.first()
             MediaClassificationStrategyHolder.update(strategy)

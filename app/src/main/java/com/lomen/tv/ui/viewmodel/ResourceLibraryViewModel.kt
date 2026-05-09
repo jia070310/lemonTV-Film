@@ -244,6 +244,12 @@ class ResourceLibraryViewModel @Inject constructor(
         }
     }
 
+    fun updateLibrary(library: ResourceLibrary) {
+        viewModelScope.launch {
+            repository.updateLibrary(library)
+        }
+    }
+
     fun removeLibrary(libraryId: String) {
         viewModelScope.launch {
             // 先删除该资源库的所有媒体数据

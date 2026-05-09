@@ -15,8 +15,8 @@ android {
         applicationId = "com.lomen.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10020
-        versionName = "1.0.20"
+        versionCode = 10021
+        versionName = "1.0.21"
 
         // TV-specific configurations
         vectorDrawables.useSupportLibrary = true
@@ -71,6 +71,7 @@ dependencies {
     // AndroidX Core
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     
     // Core library desugaring for Java 8+ APIs on older Android versions

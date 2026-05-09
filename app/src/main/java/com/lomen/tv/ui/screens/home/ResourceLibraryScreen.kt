@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.runtime.Composable
@@ -74,6 +75,7 @@ import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lomen.tv.domain.model.ResourceLibrary
+import com.lomen.tv.ui.viewmodel.ResourceLibraryViewModel
 import com.lomen.tv.ui.theme.BackgroundDark
 import com.lomen.tv.ui.theme.PrimaryYellow
 import com.lomen.tv.ui.theme.SurfaceDark
@@ -124,7 +126,8 @@ fun ResourceLibraryScreen(
     onAddLibrary: () -> Unit,
     onDeleteLibrary: (ResourceLibrary) -> Unit,
     onEditLibrary: (ResourceLibrary) -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    resourceLibraryViewModel: ResourceLibraryViewModel
 ) {
     val listFocusRequester = remember { FocusRequester() }
     val lastLibraryRowFocusRequester = remember { FocusRequester() }
@@ -134,10 +137,14 @@ fun ResourceLibraryScreen(
     var checkResult by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    var guangyaReloginTarget by remember { mutableStateOf<ResourceLibrary?>(null) }
+    var refreshToastMessage by remember { mutableStateOf<String?>(null) }
+    var refreshToastIsError by remember { mutableStateOf(false) }
 
     // 计算统计数据
     val webDavCount = libraries.count { it.type == ResourceLibrary.LibraryType.WEBDAV }
     val quarkCount = libraries.count { it.type == ResourceLibrary.LibraryType.QUARK }
+    val guangyaCount = libraries.count { it.type == ResourceLibrary.LibraryType.GUANGYA }
     val activeCount = libraries.count { checkResult[it.id] == true }
 
     // 延迟请求焦点，确保Compose已完成布局
@@ -154,20 +161,29 @@ fun ResourceLibraryScreen(
 
     // 进入页面后自动检测所有资源库连通状态
     LaunchedEffect(libraries) {
-        if (libraries.isEmpty()) {
-            checkResult = emptyMap()
-            checkingLibraryId = null
-            return@LaunchedEffect
-        }
+        runCatching {
+            if (libraries.isEmpty()) {
+                checkResult = emptyMap()
+                checkingLibraryId = null
+                return@runCatching
+            }
 
-        val newResult = mutableMapOf<String, Boolean>()
-        libraries.forEach { library ->
-            checkingLibraryId = library.id
-            val connected = checkLibraryConnection(library)
-            newResult[library.id] = connected
-            checkResult = newResult.toMap()
+            val newResult = mutableMapOf<String, Boolean>()
+            libraries.forEach { library ->
+                checkingLibraryId = library.id
+                val connected = checkLibraryConnectionWithOptionalGuangyaTokenRefresh(
+                    library,
+                    resourceLibraryViewModel
+                )
+                newResult[library.id] = connected
+                checkResult = newResult.toMap()
+            }
+            checkingLibraryId = null
+        }.onFailure { e ->
+            android.util.Log.e("ResourceLibraryScreen", "检查资源库连通性失败", e)
+            checkingLibraryId = null
+            // 出错时不让页面崩溃，保留已有状态
         }
-        checkingLibraryId = null
     }
 
     // 监听同步状态
@@ -186,16 +202,74 @@ fun ResourceLibraryScreen(
         }
     }
 
+    // 刷新TOKEN提示自动消失
+    LaunchedEffect(refreshToastMessage) {
+        if (refreshToastMessage != null) {
+            kotlinx.coroutines.delay(2500)
+            refreshToastMessage = null
+        }
+    }
+
     val configuration = LocalConfiguration.current
     val compactScale = remember(configuration.screenHeightDp, configuration.screenWidthDp) {
         computeCompactUiScale(configuration.screenHeightDp, configuration.screenWidthDp)
     }
-    // 空列表时右侧主区只有「添加资源库」按钮挂了 addLibraryFocusRequester；listFocusRequester 未附着，对其 requestFocus 会闪退
+    // 只有存在可渲染库项时才把侧栏返回键右焦点指向列表，避免 listFocusRequester 未附着导致闪退
+    val hasRenderableLibraries = libraries.any {
+        it.type == ResourceLibrary.LibraryType.WEBDAV ||
+            it.type == ResourceLibrary.LibraryType.QUARK ||
+            it.type == ResourceLibrary.LibraryType.GUANGYA
+    }
     val backButtonRightFocusRequester =
-        if (libraries.isEmpty()) addLibraryFocusRequester else listFocusRequester
+        if (hasRenderableLibraries) listFocusRequester else addLibraryFocusRequester
     // 资源库主界面整体放大：高分屏更易读，低分屏保持紧凑不溢出
     val resourceLibraryScale = remember(compactScale) {
         if (compactScale >= 1f) 1.12f else (compactScale * 1.08f).coerceAtMost(1f)
+    }
+    val handleEditLibrary: (ResourceLibrary) -> Unit = { library ->
+        if (library.type == ResourceLibrary.LibraryType.GUANGYA) {
+            val mode = library.guangyaLoginMode ?: ResourceLibrary.GuangyaLoginMode.QR
+            when (mode) {
+                ResourceLibrary.GuangyaLoginMode.QR -> {
+                    refreshToastIsError = false
+                    refreshToastMessage = "刷新中..."
+                    scope.launch {
+                        val res = com.lomen.tv.data.guangya.GuangyaApiClient(library).refreshTokens()
+                        res.onSuccess { updated ->
+                            resourceLibraryViewModel.updateLibrary(
+                                library.copy(
+                                    apiToken = updated.accessToken,
+                                    apiRefreshToken = updated.refreshToken,
+                                    apiTokenExpireAt = updated.accessExpireAt,
+                                    guangyaLoginMode = ResourceLibrary.GuangyaLoginMode.QR
+                                )
+                            )
+                            refreshToastIsError = false
+                            refreshToastMessage = "刷新成功"
+                        }.onFailure { ex ->
+                            android.util.Log.e("ResourceLibraryScreen", "refreshTokens failed", ex)
+                            val rawMsg = ex.message.orEmpty()
+                            val isInvalidGrant = rawMsg.contains("invalid_grant", ignoreCase = true)
+                            if (isInvalidGrant) {
+                                // refresh_token 已失效：直接进入重新扫码，避免用户反复点“刷新”无效
+                                refreshToastIsError = true
+                                refreshToastMessage = "登录已过期，请重新扫码登录"
+                                guangyaReloginTarget = library
+                            } else {
+                                refreshToastIsError = true
+                                val reason = rawMsg.take(36)
+                                refreshToastMessage = if (reason.isNotBlank()) "刷新失败：$reason" else "刷新失败"
+                            }
+                        }
+                    }
+                }
+                ResourceLibrary.GuangyaLoginMode.SMS -> {
+                    guangyaReloginTarget = library
+                }
+            }
+        } else {
+            onEditLibrary(library)
+        }
     }
 
     CompositionLocalProvider(LocalCompactUiScale provides resourceLibraryScale) {
@@ -221,6 +295,7 @@ fun ResourceLibraryScreen(
                 currentLibraryId = currentLibraryId,
                 webDavCount = webDavCount,
                 quarkCount = quarkCount,
+                guangyaCount = guangyaCount,
                 activeCount = activeCount,
                 syncState = syncState,
                 syncProgress = syncProgress,
@@ -234,7 +309,7 @@ fun ResourceLibraryScreen(
                 onNavigateBack = onNavigateBack,
                 onAddLibrary = onAddLibrary,
                 onDeleteLibrary = onDeleteLibrary,
-                onEditLibrary = onEditLibrary,
+                onEditLibrary = handleEditLibrary,
                 scope = scope,
                 onCheckingLibrary = { checkingLibraryId = it },
                 onCheckResult = { id, result ->
@@ -255,8 +330,8 @@ fun ResourceLibraryScreen(
                 androidx.compose.foundation.layout.Row(
                     modifier = Modifier
                         .background(
-                            color = Color(0xFFEF4444).copy(alpha = 0.92f),
-                            shape = RoundedCornerShape(12.dp.scale(compactScale))
+                            color = Color.White.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(100.dp)
                         )
                         .padding(
                             horizontal = 24.dp.scale(compactScale),
@@ -268,16 +343,83 @@ fun ResourceLibraryScreen(
                     Icon(
                         imageVector = Icons.Default.Error,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = Color.Black,
                         modifier = Modifier.size(20.dp.scale(compactScale))
                     )
                     Text(
                         text = errorMessage!!,
-                        color = Color.White,
+                        color = Color.Black,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
+        }
+
+        // 刷新TOKEN状态提示
+        if (refreshToastMessage != null) {
+            val toastBottom = if (errorMessage != null) 96.dp.scale(compactScale) else 48.dp.scale(compactScale)
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = toastBottom)
+            ) {
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier
+                        .background(
+                            color = Color.White.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(100.dp)
+                        )
+                        .padding(
+                            horizontal = 24.dp.scale(compactScale),
+                            vertical = 14.dp.scale(compactScale)
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp.scale(compactScale))
+                ) {
+                    Icon(
+                        imageVector = if (refreshToastIsError) Icons.Default.Error else Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(20.dp.scale(compactScale))
+                    )
+                    Text(
+                        text = refreshToastMessage!!,
+                        color = Color.Black,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+
+        if (guangyaReloginTarget != null) {
+            val target = guangyaReloginTarget!!
+            com.lomen.tv.ui.screens.settings.GuangyaLoginDialog(
+                onDismiss = { guangyaReloginTarget = null },
+                initialSmsLogin = true,
+                onSuccess = { result ->
+                    val picked = result.selectedPaths.firstOrNull().orEmpty()
+                    val suffix = picked
+                        .takeIf { it.isNotBlank() && it != "/" }
+                        ?.trimEnd('/')
+                        ?.substringAfterLast('/')
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { " - $it" }
+                        .orEmpty()
+
+                    resourceLibraryViewModel.updateLibrary(
+                        target.copy(
+                            name = "光鸭云盘$suffix",
+                            apiToken = result.accessToken,
+                            apiRefreshToken = result.refreshToken,
+                            apiTokenExpireAt = result.accessExpireAt,
+                            selectedPaths = result.selectedPaths,
+                            guangyaDeviceId = result.guangyaDeviceId,
+                            guangyaLoginMode = ResourceLibrary.GuangyaLoginMode.SMS
+                        )
+                    )
+                    guangyaReloginTarget = null
+                }
+            )
         }
     }
     }
@@ -475,6 +617,7 @@ private fun MainContent(
     currentLibraryId: String?,
     webDavCount: Int,
     quarkCount: Int,
+    guangyaCount: Int,
     activeCount: Int,
     syncState: MediaSyncViewModel.SyncState,
     syncProgress: Pair<Int, Int>,
@@ -513,6 +656,7 @@ private fun MainContent(
             libraryCount = libraries.size,
             webDavCount = webDavCount,
             quarkCount = quarkCount,
+            guangyaCount = guangyaCount,
             activeCount = activeCount
         )
 
@@ -546,10 +690,12 @@ private fun MainContent(
             )
         } else {
             val webDavLibraries = libraries.filter { it.type == ResourceLibrary.LibraryType.WEBDAV }
-            val quarkLibraries = libraries.filter { it.type == ResourceLibrary.LibraryType.QUARK }
-            val firstFocusableLibraryId = webDavLibraries.firstOrNull()?.id ?: quarkLibraries.firstOrNull()?.id
+            val cloudLibraries = libraries.filter {
+                it.type == ResourceLibrary.LibraryType.QUARK || it.type == ResourceLibrary.LibraryType.GUANGYA
+            }
+            val firstFocusableLibraryId = webDavLibraries.firstOrNull()?.id ?: cloudLibraries.firstOrNull()?.id
             val lastLibraryId: String? =
-                if (quarkLibraries.isNotEmpty()) quarkLibraries.last().id else webDavLibraries.lastOrNull()?.id
+                if (cloudLibraries.isNotEmpty()) cloudLibraries.last().id else webDavLibraries.lastOrNull()?.id
             val addButtonUpTarget: FocusRequester =
                 if (firstFocusableLibraryId != null && firstFocusableLibraryId == lastLibraryId) {
                     listFocusRequester
@@ -635,12 +781,12 @@ private fun MainContent(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     SectionTitle(title = "网盘区", accentColor = TextZinc600)
                     Spacer(modifier = Modifier.height(10.dp.scale(s)))
-                    if (quarkLibraries.isNotEmpty()) {
+                    if (cloudLibraries.isNotEmpty()) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(libGap)
                         ) {
-                            quarkLibraries.forEach { library ->
+                            cloudLibraries.forEach { library ->
                                 val isChecking = checkingLibraryId == library.id
                                 val isConnected = checkResult[library.id]
                                 val isLastRow = library.id == lastLibraryId
@@ -748,6 +894,7 @@ private fun HeaderSection(
     libraryCount: Int,
     webDavCount: Int,
     quarkCount: Int,
+    guangyaCount: Int,
     activeCount: Int
 ) {
     val s = LocalCompactUiScale.current
@@ -786,7 +933,7 @@ private fun HeaderSection(
             )
             StatCard(
                 label = "网盘",
-                value = "$quarkCount",
+                value = "${quarkCount + guangyaCount}",
                 borderColor = AccentYellow.copy(alpha = 0.3f)
             )
             StatCard(
@@ -914,6 +1061,17 @@ private fun LibraryListItemV2(
     var isFocused by remember { mutableStateOf(false) }
     var isEditFocused by remember { mutableStateOf(false) }
     var isDeleteFocused by remember { mutableStateOf(false) }
+    val guangyaMode = library.guangyaLoginMode ?: ResourceLibrary.GuangyaLoginMode.QR
+    val editIcon = if (library.type == ResourceLibrary.LibraryType.GUANGYA && guangyaMode == ResourceLibrary.GuangyaLoginMode.QR) {
+        Icons.Default.Refresh
+    } else {
+        Icons.Default.Edit
+    }
+    val editDesc = if (library.type == ResourceLibrary.LibraryType.GUANGYA) {
+        if (guangyaMode == ResourceLibrary.GuangyaLoginMode.QR) "刷新TOKEN" else "重新打开手机号验证登录页面"
+    } else {
+        "编辑"
+    }
     val downToAdd =
         if (isLastLibraryRow && addLibraryDownTarget != null) {
             Modifier.focusProperties { down = addLibraryDownTarget }
@@ -995,6 +1153,31 @@ private fun LibraryListItemV2(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (library.type == ResourceLibrary.LibraryType.GUANGYA) {
+                            Spacer(modifier = Modifier.width(10.dp.scale(s)))
+                            val guangyaMode = library.guangyaLoginMode ?: ResourceLibrary.GuangyaLoginMode.QR
+                            when (guangyaMode) {
+                                ResourceLibrary.GuangyaLoginMode.QR -> {
+                                    Icon(
+                                        imageVector = Icons.Default.QrCode,
+                                        contentDescription = null,
+                                        tint = if (isFocused) Color.Black else TextMuted,
+                                        modifier = Modifier.size(16.dp.scale(s))
+                                    )
+                                }
+                                ResourceLibrary.GuangyaLoginMode.SMS -> {
+                                    Text(
+                                        text = "手机号登录",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = (MaterialTheme.typography.bodySmall.fontSize.value * s * 0.82f).sp
+                                        ),
+                                        color = if (isFocused) Color.Black.copy(alpha = 0.75f) else TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 if (isSelected) {
@@ -1028,8 +1211,8 @@ private fun LibraryListItemV2(
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "编辑",
+                    imageVector = editIcon,
+                    contentDescription = editDesc,
                     tint = if (isEditFocused) Color.Black else AccentYellow,
                     modifier = Modifier.size(18.dp.scale(s))
                 )
@@ -1517,6 +1700,45 @@ private fun SyncStatusCardV2(
     }
 }
 
+/**
+ * 先校验连通性；若为光鸭且校验失败但有 refresh_token，则尝试续期并重试校验，
+ * 成功时写回持久化库（与用户手动点「刷新TOKEN」等价）。
+ *
+ * 说明：设置页的「每隔 X 小时自动刷新」只对直播源生效，不会刷新光鸭 OAuth；
+ * 此前仅在此处做 [/user/me] 探测，不会在 access 将过期/刚过期时主动用 refresh_token 续期，
+ * 容易表现为「已掉线但未自动拉回」。
+ */
+private suspend fun checkLibraryConnectionWithOptionalGuangyaTokenRefresh(
+    library: ResourceLibrary,
+    resourceLibraryViewModel: ResourceLibraryViewModel
+): Boolean {
+    var ok = runCatching { checkLibraryConnection(library) }.getOrDefault(false)
+    if (ok) return true
+    if (library.type != ResourceLibrary.LibraryType.GUANGYA) return false
+    if (library.apiRefreshToken.isBlank()) return false
+
+    val refresh = runCatching {
+        com.lomen.tv.data.guangya.GuangyaApiClient(library).refreshTokens(forceRefresh = true)
+    }.getOrNull()
+    if (refresh == null || refresh.isFailure) return false
+
+    val u = refresh.getOrNull() ?: return false
+    val patched = library.copy(
+        apiToken = u.accessToken,
+        apiRefreshToken = u.refreshToken,
+        apiTokenExpireAt = u.accessExpireAt
+    )
+    resourceLibraryViewModel.updateLibrary(patched)
+    ok = runCatching { checkLibraryConnection(patched) }.getOrDefault(false)
+    if (ok) {
+        android.util.Log.d(
+            "ResourceLibraryScreen",
+            "Guangya auto refresh after failed probe: libraryId=${library.id}"
+        )
+    }
+    return ok
+}
+
 private suspend fun checkWebDavConnection(library: ResourceLibrary): Boolean {
     return withContext(Dispatchers.IO) {
         // 连接测试只需测根路径，不测具体存储路径（避免子目录 404/权限问题）
@@ -1581,6 +1803,18 @@ private suspend fun checkLibraryConnection(library: ResourceLibrary): Boolean {
     return when (library.type) {
         ResourceLibrary.LibraryType.WEBDAV -> checkWebDavConnection(library)
         ResourceLibrary.LibraryType.QUARK -> checkQuarkConnection()
+        ResourceLibrary.LibraryType.GUANGYA -> checkAListConnection(library)
+    }
+}
+
+private suspend fun checkAListConnection(library: ResourceLibrary): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            if (library.apiToken.isBlank()) return@withContext false
+            com.lomen.tv.data.guangya.GuangyaApiClient(library).validateToken()
+        } catch (_: Exception) {
+            false
+        }
     }
 }
 

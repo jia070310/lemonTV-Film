@@ -6,6 +6,7 @@ import com.lomen.tv.data.local.database.dao.EpisodeDao
 import com.lomen.tv.data.local.database.dao.MovieDao
 import com.lomen.tv.data.local.database.dao.WebDavMediaDao
 import com.lomen.tv.data.repository.ResourceLibraryRepository
+import com.lomen.tv.data.guangya.GuangyaApiClient
 import com.lomen.tv.domain.model.ResourceLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -55,11 +56,11 @@ class MediaUrlResolver @Inject constructor(
             if (libraries.isEmpty()) {
                 return@withContext Result.failure(Exception("No resource library configured"))
             }
-            
-            // 找到包含该视频的资源库
-            val library = libraries.firstOrNull { 
-                videoPath.startsWith(it.name) || videoPath.contains(it.name)
-            } ?: libraries.first()
+
+            // 优先通过数据库根据 filePath 精确定位 libraryId
+            val entity = webDavMediaDao.getByFilePath(videoPath)
+            val library = entity?.libraryId?.let { id -> libraries.firstOrNull { it.id == id } }
+                ?: libraries.first()
             
             Log.d(TAG, "Using library: ${library.name}, type: ${library.type}")
             
@@ -68,6 +69,22 @@ class MediaUrlResolver @Inject constructor(
                 ResourceLibrary.LibraryType.WEBDAV -> {
                     // WebDAV类型
                     resolveWebDavPlaybackUrl(videoPath, library)
+                }
+                ResourceLibrary.LibraryType.GUANGYA -> {
+                    val client = GuangyaApiClient(library)
+                    val direct = client.getDownloadUrlByPath(videoPath)
+                    if (direct.isSuccess) {
+                        Result.success(
+                            MediaPlaybackInfo(
+                                url = direct.getOrThrow(),
+                                headers = emptyMap(),
+                                subtitles = emptyList(),
+                                audioTracks = emptyList()
+                            )
+                        )
+                    } else {
+                        Result.failure(direct.exceptionOrNull() ?: IllegalStateException("failed to resolve Guangya link"))
+                    }
                 }
                 else -> {
                     // 其他类型，默认使用WebDAV方式

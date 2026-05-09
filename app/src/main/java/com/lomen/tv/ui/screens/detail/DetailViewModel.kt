@@ -22,6 +22,7 @@ import com.lomen.tv.domain.model.isLocalEpisodicSeries
 import com.lomen.tv.domain.service.MetadataService
 import com.lomen.tv.domain.service.WatchHistoryService
 import com.lomen.tv.utils.FileNameParser
+import com.lomen.tv.utils.VideoQualityDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -170,14 +171,12 @@ class DetailViewModel @Inject constructor(
                         }
                         Log.d(TAG, "找到同系列剧集: ${seriesEpisodes.size} 个")
 
-                        // 先用本地信息快速构建剧集列表，保证详情页秒开；TMDB 单集信息后台渐进补全
-                        val allEpisodes = seriesEpisodes.map { episode ->
+                        // 先用本地信息快速构建剧集列表；同季同集多清晰度（如 4K/1080 目录）合并为一卡
+                        val episodeDrafts = seriesEpisodes.map { episode ->
                             val parsed = episode.fileName?.let { FileNameParser.parse(it) }
                             val parsedEp = parsed?.episode
-                            // 库内集号常误为 1：综艺/本地命名优先采用文件名解析的集号
                             val episodeNumber = parsedEp ?: episode.episodeNumber ?: 1
                             val seasonNumber = episode.seasonNumber ?: 1
-                            
                             val parsedTitle = parsed?.title?.trim().orEmpty()
                             val fileNameTitle = episode.fileName.substringBeforeLast('.').trim()
                             val episodeTitle = resolveEpisodeDisplayTitle(
@@ -186,25 +185,17 @@ class DetailViewModel @Inject constructor(
                                 seriesTitle = webDavMedia.title,
                                 episodeNumber = episodeNumber
                             )
-                            
-                            // 占位图优先使用当前剧目主海报（手动修正后可立刻生效），
-                            // 后续再由 TMDB 单集剧照覆盖。
                             val stillUrl = webDavMedia.posterUrl ?: webDavMedia.backdropUrl ?: episode.posterUrl
-                            
-                            val duration = 0L
-                            
-                            EpisodeItem(
-                                id = episode.id,
+                            WebDavEpisodeDraft(
+                                entity = episode,
                                 episodeNumber = episodeNumber,
                                 seasonNumber = seasonNumber,
-                                title = episodeTitle,
+                                episodeTitle = episodeTitle,
                                 stillUrl = stillUrl,
-                                progress = 0,
-                                duration = duration,
-                                isWatched = false,
-                                path = episode.filePath
+                                duration = 0L
                             )
                         }
+                        val allEpisodes = mergeWebDavEpisodesBySeasonEpisode(episodeDrafts)
                         
                         // 按季分组
                         allEpisodesBySeason = allEpisodes.groupBy { it.seasonNumber }
@@ -441,7 +432,14 @@ class DetailViewModel @Inject constructor(
         mediaId: String
     ): List<EpisodeItem> {
         return episodes.map { episode ->
-            val history = resolveEpisodeWatchHistory(mediaId, episode.id)
+            val candidateIds = buildList {
+                add(episode.id)
+                episode.qualityVariants.forEach { add(it.mediaId) }
+            }.distinct()
+            val histories = candidateIds.mapNotNull { resolveEpisodeWatchHistory(mediaId, it) }
+            val history = histories.maxWithOrNull(
+                compareBy({ it.lastWatchedAt }, { it.progress })
+            )
             if (history != null) {
                 episode.copy(
                     progress = history.progress,
@@ -508,38 +506,63 @@ class DetailViewModel @Inject constructor(
             val latestSeriesHistory = watchHistoryDao.getLatestWatchHistoryByMovieId(mediaId)
             val targetFromSeriesHistory = latestSeriesHistory
                 ?.episodeId
-                ?.let { watchedEpisodeId -> allEpisodes.find { it.id == watchedEpisodeId } }
+                ?.let { watchedEpisodeId ->
+                    allEpisodes.find { ep ->
+                        ep.id == watchedEpisodeId ||
+                            ep.qualityVariants.any { it.mediaId == watchedEpisodeId }
+                    }
+                }
 
             if (latestSeriesHistory != null && targetFromSeriesHistory != null) {
+                val watchedEpisodeId = latestSeriesHistory.episodeId
+                val variantPath = targetFromSeriesHistory.qualityVariants
+                    .find { it.mediaId == watchedEpisodeId }
+                    ?.path
+                val url = variantPath ?: targetFromSeriesHistory.path ?: ""
+                val resumeEpisodeId = watchedEpisodeId.takeIf { id ->
+                    targetFromSeriesHistory.id == id ||
+                        targetFromSeriesHistory.qualityVariants.any { it.mediaId == id }
+                } ?: targetFromSeriesHistory.id
                 return ResumePlaybackInfo(
-                    videoUrl = targetFromSeriesHistory.path ?: "",
+                    videoUrl = url,
                     title = media.title,
                     episodeTitle = "第${targetFromSeriesHistory.episodeNumber}集 ${targetFromSeriesHistory.title ?: ""}",
                     mediaId = mediaId,
-                    episodeId = targetFromSeriesHistory.id,
+                    episodeId = resumeEpisodeId,
                     startPosition = latestSeriesHistory.progress
                 )
             }
 
-            // 2) 兼容旧历史格式：在每集历史中找该剧的最后一次记录
+            // 2) 兼容旧历史格式：在每集历史中找该剧的最后一次记录（含多清晰度任一变体 id）
             var latestLegacyHistory: WatchHistoryEntity? = null
             var targetEpisode: EpisodeItem? = null
+            var legacyHistoryMediaId: String? = null
             for (episode in allEpisodes) {
-                val history = resolveEpisodeWatchHistory(mediaId, episode.id) ?: continue
-                if (latestLegacyHistory == null || history.lastWatchedAt > latestLegacyHistory.lastWatchedAt) {
-                    latestLegacyHistory = history
-                    targetEpisode = episode
+                val ids = buildList {
+                    add(episode.id)
+                    episode.qualityVariants.forEach { add(it.mediaId) }
+                }.distinct()
+                for (eid in ids) {
+                    val history = resolveEpisodeWatchHistory(mediaId, eid) ?: continue
+                    if (latestLegacyHistory == null || history.lastWatchedAt > latestLegacyHistory.lastWatchedAt) {
+                        latestLegacyHistory = history
+                        targetEpisode = episode
+                        legacyHistoryMediaId = eid
+                    }
                 }
             }
 
             return if (targetEpisode != null && latestLegacyHistory != null) {
-                // 找到了有观看历史的剧集，继续观看
+                val resumePath = legacyHistoryMediaId?.let { hid ->
+                    targetEpisode.qualityVariants.find { it.mediaId == hid }?.path
+                } ?: targetEpisode.path ?: ""
+                val resumeEpId = legacyHistoryMediaId ?: targetEpisode.id
                 ResumePlaybackInfo(
-                    videoUrl = targetEpisode.path ?: "",
+                    videoUrl = resumePath,
                     title = media.title,
                     episodeTitle = "第${targetEpisode.episodeNumber}集 ${targetEpisode.title ?: ""}",
                     mediaId = mediaId,
-                    episodeId = targetEpisode.id,
+                    episodeId = resumeEpId,
                     startPosition = latestLegacyHistory.progress
                 )
             } else {
@@ -570,15 +593,18 @@ class DetailViewModel @Inject constructor(
         val mediaId = currentMediaId ?: return null
         val currentState = _uiState.value as? DetailUiState.Success ?: return null
         
-        // 找到对应的剧集
-        val episode = allEpisodesBySeason.values.flatten().find { it.id == episodeId }
-            ?: return null
-        
-        // 获取观看历史
+        val episode = allEpisodesBySeason.values.flatten().find { ep ->
+            ep.id == episodeId || ep.qualityVariants.any { it.mediaId == episodeId }
+        } ?: return null
+
+        val videoUrl = episode.qualityVariants.find { it.mediaId == episodeId }?.path
+            ?: episode.path ?: ""
+
         val history = resolveEpisodeWatchHistory(mediaId, episodeId)
-        
+            ?: resolveEpisodeWatchHistory(mediaId, episode.id)
+
         return EpisodePlaybackInfo(
-            videoUrl = episode.path ?: "",
+            videoUrl = videoUrl,
             title = currentState.media.title,
             episodeTitle = "第${episode.episodeNumber}集 ${episode.title ?: ""}",
             mediaId = mediaId,
@@ -721,7 +747,11 @@ class DetailViewModel @Inject constructor(
 
                 // 同剧分集批量覆盖：手动修正后，确保所有分集条目的封面/简介/TMDB 关联一起更新，
                 // 避免「最近播放」这类按 episodeId 取数的入口仍显示旧封面。
-                val relatedIds = (allEpisodesBySeason.values.flatten().map { it.id } + mediaId).distinct()
+                val relatedIds = (
+                    allEpisodesBySeason.values.flatten().flatMap { ep ->
+                        listOf(ep.id) + ep.qualityVariants.map { it.mediaId }
+                    } + mediaId
+                    ).distinct()
                 relatedIds.forEach { id ->
                     if (id == mediaId) return@forEach
                     val item = webDavMediaDao.getById(id) ?: return@forEach
@@ -805,6 +835,48 @@ class DetailViewModel @Inject constructor(
             cleaned = "第${episodeNumber}集"
         }
         return cleaned
+    }
+
+    private data class WebDavEpisodeDraft(
+        val entity: WebDavMediaEntity,
+        val episodeNumber: Int,
+        val seasonNumber: Int,
+        val episodeTitle: String,
+        val stillUrl: String?,
+        val duration: Long
+    )
+
+    /** 同季同集多条 WebDAV 记录合并为一项，默认保留最高清晰度对应文件 */
+    private fun mergeWebDavEpisodesBySeasonEpisode(drafts: List<WebDavEpisodeDraft>): List<EpisodeItem> {
+        if (drafts.isEmpty()) return emptyList()
+        return drafts
+            .groupBy { it.seasonNumber to it.episodeNumber }
+            .values
+            .map { group ->
+                val sorted = group.sortedByDescending {
+                    VideoQualityDetector.rank(it.entity.filePath, it.entity.fileName)
+                }
+                val best = sorted.first()
+                val variants = sorted.distinctBy { it.entity.id }.map {
+                    EpisodeQualityVariant(
+                        mediaId = it.entity.id,
+                        label = VideoQualityDetector.label(it.entity.filePath, it.entity.fileName),
+                        path = it.entity.filePath
+                    )
+                }
+                EpisodeItem(
+                    id = best.entity.id,
+                    episodeNumber = best.episodeNumber,
+                    seasonNumber = best.seasonNumber,
+                    title = best.episodeTitle,
+                    stillUrl = best.stillUrl,
+                    progress = 0,
+                    duration = best.duration,
+                    isWatched = false,
+                    path = best.entity.filePath,
+                    qualityVariants = variants
+                )
+            }
     }
 
     private suspend fun preloadEpisodeCacheForManualSelection(tmdbId: Int) {

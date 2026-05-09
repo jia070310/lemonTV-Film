@@ -1379,6 +1379,13 @@ data class MediaDetail(
     val path: String? = null
 )
 
+/** 同集不同清晰度文件（如 4K / 1080 两套目录），用于详情合并与播放器切换 */
+data class EpisodeQualityVariant(
+    val mediaId: String,
+    val label: String,
+    val path: String
+)
+
 data class EpisodeItem(
     val id: String,
     val episodeNumber: Int,
@@ -1388,7 +1395,9 @@ data class EpisodeItem(
     val progress: Long = 0,
     val duration: Long = 0,
     val isWatched: Boolean = false,
-    val path: String? = null
+    val path: String? = null,
+    /** 多清晰度时含全部版本（已按清晰度从高到低排序）；单版本可为空 */
+    val qualityVariants: List<EpisodeQualityVariant> = emptyList()
 )
 
 /**

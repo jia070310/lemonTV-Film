@@ -20,6 +20,7 @@ import com.lomen.tv.domain.service.SubtitleInfo
 import com.lomen.tv.domain.service.TrackInfo
 import com.lomen.tv.domain.service.WatchHistoryService
 import com.lomen.tv.utils.FileNameParser
+import com.lomen.tv.utils.VideoQualityDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -569,6 +570,36 @@ class PlayerViewModel @Inject constructor(
         val season = parsed?.season ?: media.seasonNumber ?: 1
         return Pair(ep, season)
     }
+
+    /** 同剧同季同集仅保留一条（最高清晰度），避免选集/上下集重复 */
+    private fun dedupeWebDavEpisodesForSeries(
+        anchor: WebDavMediaEntity,
+        libraryMedia: List<WebDavMediaEntity>
+    ): List<WebDavMediaEntity> {
+        val grouped = libraryMedia
+            .map { media ->
+                val (episodeNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
+                Triple(media, episodeNum, seasonNum)
+            }
+            .filter { (media, episodeNum, _) ->
+                episodeNum != null &&
+                    media.type.isWebDavEpisodic() &&
+                    isSameWebDavSeries(anchor, media)
+            }
+            .groupBy { (_, ep, season) -> season to ep!! }
+        return grouped.values
+            .map { triples ->
+                triples.maxByOrNull { (media, _, _) ->
+                    VideoQualityDetector.rank(media.filePath, media.fileName)
+                }!!.first
+            }
+            .sortedWith(
+                compareBy<WebDavMediaEntity>(
+                    { resolveWebDavEpisodeAndSeason(it).second },
+                    { resolveWebDavEpisodeAndSeason(it).first ?: 0 }
+                )
+            )
+    }
     
     /**
      * 获取下一集信息
@@ -660,36 +691,23 @@ class PlayerViewModel @Inject constructor(
             }
             
             val allMedia = webDavMediaDao.getByLibraryId(webDavMedia.libraryId).first()
-            
-            val allEpisodes = allMedia
-                .map { media ->
-                    val (episodeNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
-                    Triple(media, episodeNum, seasonNum)
-                }
-                .filter { (media, episodeNum, _) ->
-                    episodeNum != null && isSameWebDavSeries(webDavMedia, media)
-                }
-                .sortedWith(compareBy(
-                    { it.third },
-                    { it.second ?: 0 }
-                ))
-                .map { it.first }
-            
+            val allEpisodes = dedupeWebDavEpisodesForSeries(webDavMedia, allMedia)
+
             android.util.Log.d("PlayerViewModel", "Found ${allEpisodes.size} WebDAV episodes for libraryId=${webDavMedia.libraryId}, tmdbId=${webDavMedia.tmdbId}")
-            
+
             allEpisodes.forEachIndexed { index, media ->
                 val (epNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
                 android.util.Log.d("PlayerViewModel", "Episode[$index]: id=${media.id}, S${seasonNum}E${epNum}, fileName=${media.fileName}")
             }
-            
+
             if (allEpisodes.isEmpty()) {
                 android.util.Log.d("PlayerViewModel", "No WebDAV episodes found")
                 return null
             }
-            
+
             val targetId = currentEpisodeId ?: mediaId
             var currentIndex = allEpisodes.indexOfFirst { it.id == targetId }
-            
+
             if (currentIndex < 0) {
                 android.util.Log.d("PlayerViewModel", "Current targetId=$targetId not found by ID, trying to match by episode number")
                 currentIndex = allEpisodes.indexOfFirst { media ->
@@ -704,19 +722,19 @@ class PlayerViewModel @Inject constructor(
             } else {
                 android.util.Log.d("PlayerViewModel", "Found current episode by ID at index=$currentIndex (targetId=$targetId)")
             }
-            
+
             android.util.Log.d("PlayerViewModel", "Current WebDAV episode: S${currentSeasonNumber}E${currentEpisodeNumber}, mediaId=$mediaId, episodeId=$currentEpisodeId, targetId=$targetId, index=$currentIndex, total=${allEpisodes.size}")
-            
+
             if (currentIndex < 0) {
                 android.util.Log.w("PlayerViewModel", "Current WebDAV episode not found")
                 return null
             }
-            
+
             if (currentIndex >= allEpisodes.size - 1) {
                 android.util.Log.d("PlayerViewModel", "Already at last WebDAV episode (index=$currentIndex, total=${allEpisodes.size})")
                 return null // 已经是最后一集
             }
-            
+
             val nextEpisode = allEpisodes[currentIndex + 1]
             val (nextEpisodeNum, nextSeasonNum) = resolveWebDavEpisodeAndSeason(nextEpisode)
             
@@ -808,36 +826,23 @@ class PlayerViewModel @Inject constructor(
             }
             
             val allMedia = webDavMediaDao.getByLibraryId(webDavMedia.libraryId).first()
-            
-            val allEpisodes = allMedia
-                .map { media ->
-                    val (episodeNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
-                    Triple(media, episodeNum, seasonNum)
-                }
-                .filter { (media, episodeNum, _) ->
-                    episodeNum != null && isSameWebDavSeries(webDavMedia, media)
-                }
-                .sortedWith(compareBy(
-                    { it.third },
-                    { it.second ?: 0 }
-                ))
-                .map { it.first }
-            
+            val allEpisodes = dedupeWebDavEpisodesForSeries(webDavMedia, allMedia)
+
             android.util.Log.d("PlayerViewModel", "Found ${allEpisodes.size} WebDAV episodes for libraryId=${webDavMedia.libraryId}, tmdbId=${webDavMedia.tmdbId}")
-            
+
             allEpisodes.forEachIndexed { index, media ->
                 val (epNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
                 android.util.Log.d("PlayerViewModel", "Episode[$index]: id=${media.id}, S${seasonNum}E${epNum}, fileName=${media.fileName}")
             }
-            
+
             if (allEpisodes.isEmpty()) {
                 android.util.Log.d("PlayerViewModel", "No WebDAV episodes found")
                 return null
             }
-            
+
             val targetId = currentEpisodeId ?: mediaId
             var currentIndex = allEpisodes.indexOfFirst { it.id == targetId }
-            
+
             if (currentIndex < 0) {
                 android.util.Log.d("PlayerViewModel", "Current targetId=$targetId not found by ID, trying to match by episode number")
                 currentIndex = allEpisodes.indexOfFirst { media ->
@@ -852,26 +857,26 @@ class PlayerViewModel @Inject constructor(
             } else {
                 android.util.Log.d("PlayerViewModel", "Found current episode by ID at index=$currentIndex (targetId=$targetId)")
             }
-            
+
             android.util.Log.d("PlayerViewModel", "Current WebDAV episode: S${currentSeasonNumber}E${currentEpisodeNumber}, mediaId=$mediaId, episodeId=$currentEpisodeId, targetId=$targetId, index=$currentIndex, total=${allEpisodes.size}")
-            
+
             if (currentIndex < 0) {
                 android.util.Log.w("PlayerViewModel", "Current WebDAV episode not found")
                 return null
             }
-            
+
             if (currentIndex <= 0) {
                 android.util.Log.d("PlayerViewModel", "Already at first WebDAV episode (index=$currentIndex)")
                 return null
             }
-            
+
             val previousEpisode = allEpisodes[currentIndex - 1]
             val (prevEpisodeNum, prevSeasonNum) = resolveWebDavEpisodeAndSeason(previousEpisode)
-            
+
             android.util.Log.d("PlayerViewModel", "Previous WebDAV episode: S${prevSeasonNum}E${prevEpisodeNum}")
             return EpisodeInfo(
                 mediaId = previousEpisode.id,
-                episodeId = null,
+                episodeId = previousEpisode.id,
                 seasonNumber = prevSeasonNum,
                 episodeNumber = prevEpisodeNum ?: 0
             )
@@ -987,21 +992,9 @@ class PlayerViewModel @Inject constructor(
                 } else {
                     emptyList()
                 }
-                
-                val allEpisodes = allMedia
-                    .map { media ->
-                        val (episodeNum, seasonNum) = resolveWebDavEpisodeAndSeason(media)
-                        Triple(media, episodeNum, seasonNum)
-                    }
-                    .filter { (media, episodeNum, _) ->
-                        episodeNum != null && isSameWebDavSeries(webDavMedia, media)
-                    }
-                    .sortedWith(compareBy(
-                        { it.third },
-                        { it.second ?: 0 }
-                    ))
-                    .map { it.first }
-                
+
+                val allEpisodes = dedupeWebDavEpisodesForSeries(webDavMedia, allMedia)
+
                 // 尝试从 TMDB 获取剧集信息
                 val tmdbEpisodesMap = mutableMapOf<Pair<Int, Int>, com.lomen.tv.data.scraper.EpisodeInfo>()
                 if (webDavMedia.tmdbId != null) {
@@ -1086,7 +1079,12 @@ class PlayerViewModel @Inject constructor(
                             filePath = ep.quarkPath
                         ))
                     }
-                    options
+                    options.sortedByDescending { q ->
+                        VideoQualityDetector.rank(
+                            q.filePath ?: "",
+                            q.filePath?.substringAfterLast('/') ?: ""
+                        )
+                    }
                 } else {
                     emptyList()
                 }
@@ -1117,14 +1115,16 @@ class PlayerViewModel @Inject constructor(
                         mediaSeasonNum == seasonNum &&
                         isSameWebDavSeries(currentEpisode, media)
                     }
-                    
-                    sameEpisodes.map { media ->
-                        QualityOption(
-                            id = media.id,
-                            label = detectQualityLabel(media.fileName ?: ""),
-                            filePath = media.filePath
-                        )
-                    }
+
+                    sameEpisodes
+                        .sortedByDescending { VideoQualityDetector.rank(it.filePath, it.fileName) }
+                        .map { media ->
+                            QualityOption(
+                                id = media.id,
+                                label = detectQualityLabel(media.filePath),
+                                filePath = media.filePath
+                            )
+                        }
                     }
                 } else {
                     emptyList()
@@ -1138,23 +1138,11 @@ class PlayerViewModel @Inject constructor(
         }
     }
     
-    /**
-     * 从文件路径或文件名检测清晰度标签
-     */
-    private fun detectQualityLabel(filePath: String): String {
-        val fileName = filePath.substringAfterLast('/')
-        return when {
-            fileName.contains("2160p", ignoreCase = true) || 
-            fileName.contains("4K", ignoreCase = true) -> "4K"
-            fileName.contains("1080p", ignoreCase = true) -> "1080p"
-            fileName.contains("720p", ignoreCase = true) -> "720p"
-            fileName.contains("480p", ignoreCase = true) -> "480p"
-            fileName.contains("蓝光", ignoreCase = true) || 
-            fileName.contains("BluRay", ignoreCase = true) || 
-            fileName.contains("BD", ignoreCase = true) -> "蓝光"
-            fileName.contains("HDR", ignoreCase = true) -> "HDR"
-            else -> "高清"
-        }
+    /** 从完整路径检测清晰度（含目录名中的 4K / 1080 等） */
+    private fun detectQualityLabel(fullPath: String): String {
+        val fileName = fullPath.substringAfterLast('/', fullPath)
+        val dir = if (fullPath.contains('/')) fullPath.substringBeforeLast('/') else ""
+        return VideoQualityDetector.label(dir, fileName)
     }
     
     /**
@@ -1162,13 +1150,16 @@ class PlayerViewModel @Inject constructor(
      */
     suspend fun switchQuality(qualityId: String): Boolean {
         val mediaId = currentMediaId ?: return false
-        
+
         return try {
+            // 同集换清晰度：从当前时间点续播（新版文件时长略短时由播放器自身钳制）
+            val resumeMs = playerService.getCurrentPosition().coerceAtLeast(0L)
+
             val movie = movieDao.getMovieById(mediaId)
             val webDavMedia = if (movie == null) {
                 loadWebDavForEpisodeContext(mediaId, currentEpisodeId)
             } else null
-            
+
             if (movie?.type?.isLocalEpisodicSeries() == true) {
                 // MovieEntity 分集类型
                 val episode = episodeDao.getEpisodeById(qualityId)
@@ -1178,7 +1169,7 @@ class PlayerViewModel @Inject constructor(
                         videoPath = videoPath,
                         title = movie.title,
                         episodeTitle = episode.title,
-                        startPosition = 0L
+                        startPosition = resumeMs
                     )
                     currentEpisodeId = qualityId
                     true
@@ -1194,7 +1185,7 @@ class PlayerViewModel @Inject constructor(
                         videoPath = videoPath,
                         title = webDavMedia.title,
                         episodeTitle = media.title,
-                        startPosition = 0L
+                        startPosition = resumeMs
                     )
                     currentEpisodeId = qualityId
                     true

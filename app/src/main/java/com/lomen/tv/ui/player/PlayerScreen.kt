@@ -200,7 +200,12 @@ fun PlayerScreen(
     var showEpisodeListDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showSkipConfigDialog by remember { mutableStateOf(false) }
-    
+
+    /** 任一模态打开时，勿自动隐藏控制栏 / 勿 clearFocus 抢播放器根焦点（否则会打断对话框） */
+    val blockingOverlayDialogsOpen =
+        showEpisodeListDialog || showQualityDialog || showSubtitleDialog ||
+            showAudioTrackDialog || showSpeedDialog || showSkipConfigDialog
+
     // 获取字幕、音轨、倍速数据
     val availableSubtitles by viewModel.availableSubtitles.collectAsState()
     val availableAudioTracks by viewModel.availableAudioTracks.collectAsState()
@@ -346,13 +351,13 @@ fun PlayerScreen(
     // 注意：起始位置现在在 prepareMedia 时直接设置，不需要在这里再次跳转
 
     // 自动隐藏控制栏：从用户停止操作开始计时
-    LaunchedEffect(showControls, lastInteractionTime, showEpisodeListDialog) {
-        if (showControls && !showEpisodeListDialog) {
+    LaunchedEffect(showControls, lastInteractionTime, blockingOverlayDialogsOpen) {
+        if (showControls && !blockingOverlayDialogsOpen) {
             // 等待6秒
             delay(CONTROLS_AUTO_HIDE_MS)
             // 检查是否已经超过6秒没有操作
             val timeSinceLastInteraction = System.currentTimeMillis() - lastInteractionTime
-            if (timeSinceLastInteraction >= CONTROLS_AUTO_HIDE_MS && !showEpisodeListDialog) {
+            if (timeSinceLastInteraction >= CONTROLS_AUTO_HIDE_MS && !blockingOverlayDialogsOpen) {
                 // 超过6秒没有操作，隐藏控制栏
                 showControls = false
                 controlsMode = null
@@ -391,8 +396,8 @@ fun PlayerScreen(
     }
     
     // 控制栏隐藏后，先清空旧焦点，再在退出动画后把焦点收回根容器
-    LaunchedEffect(requestRootFocusRestoreToken, showEpisodeListDialog) {
-        if (requestRootFocusRestoreToken > 0 && !showEpisodeListDialog) {
+    LaunchedEffect(requestRootFocusRestoreToken, blockingOverlayDialogsOpen) {
+        if (requestRootFocusRestoreToken > 0 && !blockingOverlayDialogsOpen) {
             debugLog("restore-root-focus token=$requestRootFocusRestoreToken clearFocus(force=true)")
             focusManager.clearFocus(force = true)
             // 控制栏隐藏时已经直接移除，不需要再等待淡出动画
@@ -402,19 +407,19 @@ fun PlayerScreen(
         }
     }
     
-    LaunchedEffect(showControls, controlsMode, focusedControlZone, showEpisodeListDialog) {
+    LaunchedEffect(showControls, controlsMode, focusedControlZone, blockingOverlayDialogsOpen) {
         if (!showControls && focusedControlZone != ControlFocusZone.NONE) {
             focusedControlZone = ControlFocusZone.NONE
         }
         debugLog(
             "ui-state showControls=$showControls mode=$controlsMode " +
-                "focusedZone=$focusedControlZone episodeDialog=$showEpisodeListDialog"
+                "focusedZone=$focusedControlZone overlayDialog=$blockingOverlayDialogsOpen"
         )
     }
-    
+
     // 兜底：控制栏隐藏时，持续保证根容器持有焦点，避免首按先用于“激活焦点”
-    LaunchedEffect(showControls, showEpisodeListDialog, rootHasFocus) {
-        if (!showControls && !showEpisodeListDialog && !rootHasFocus) {
+    LaunchedEffect(showControls, blockingOverlayDialogsOpen, rootHasFocus) {
+        if (!showControls && !blockingOverlayDialogsOpen && !rootHasFocus) {
             focusManager.clearFocus(force = true)
             focusRequester.requestFocus()
             debugLog("focus-guard request root focus because controls hidden")
@@ -435,6 +440,16 @@ fun PlayerScreen(
     BackHandler {
         if (showEpisodeListDialog) {
             showEpisodeListDialog = false
+        } else if (showQualityDialog) {
+            showQualityDialog = false
+        } else if (showSubtitleDialog) {
+            showSubtitleDialog = false
+        } else if (showAudioTrackDialog) {
+            showAudioTrackDialog = false
+        } else if (showSpeedDialog) {
+            showSpeedDialog = false
+        } else if (showSkipConfigDialog) {
+            showSkipConfigDialog = false
         } else if (showControls) {
             showControls = false
             controlsMode = null
@@ -471,7 +486,13 @@ fun PlayerScreen(
         return when (keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> {
-                if (showControls && controlsMode == ControlsMode.NAV) {
+                // controlsMode 初始为 null 时，焦点可能已在进度条/底部 pill，必须把 OK 交给焦点控件，
+                // 否则会误触发暂停并把焦点强制拉回播放键（例如首次点「高清」）
+                val passOkToFocusedWidget = showControls && (
+                    controlsMode == ControlsMode.NAV ||
+                        (controlsMode == null && focusedControlZone != ControlFocusZone.NONE)
+                    )
+                if (passOkToFocusedWidget) {
                     updateInteractionTime { lastInteractionTime = it }
                     debugLog("pass-through key=OK/ENTER reason=letFocusedControlHandleClick source=$source")
                     false
@@ -601,6 +622,26 @@ fun PlayerScreen(
                     showEpisodeListDialog = false
                     debugLog("consume key=BACK action=closeEpisodeDialog source=$source")
                     true
+                } else if (showQualityDialog) {
+                    showQualityDialog = false
+                    debugLog("consume key=BACK action=closeQualityDialog source=$source")
+                    true
+                } else if (showSubtitleDialog) {
+                    showSubtitleDialog = false
+                    debugLog("consume key=BACK action=closeSubtitleDialog source=$source")
+                    true
+                } else if (showAudioTrackDialog) {
+                    showAudioTrackDialog = false
+                    debugLog("consume key=BACK action=closeAudioDialog source=$source")
+                    true
+                } else if (showSpeedDialog) {
+                    showSpeedDialog = false
+                    debugLog("consume key=BACK action=closeSpeedDialog source=$source")
+                    true
+                } else if (showSkipConfigDialog) {
+                    showSkipConfigDialog = false
+                    debugLog("consume key=BACK action=closeSkipDialog source=$source")
+                    true
                 } else if (showControls) {
                     showControls = false
                     controlsMode = null
@@ -649,7 +690,7 @@ fun PlayerScreen(
             }
     ) {
         val revealControlsFromPointer: () -> Unit = {
-            if (!showEpisodeListDialog) {
+            if (!blockingOverlayDialogsOpen) {
                 showControls = true
                 controlsMode = ControlsMode.NAV
                 navInitialFocusZone = ControlFocusZone.BOTTOM_BUTTONS
@@ -825,7 +866,13 @@ fun PlayerScreen(
                     onShowSubtitleDialog = { showSubtitleDialog = true },
                     onShowAudioTrackDialog = { showAudioTrackDialog = true },
                     onShowSpeedDialog = { showSpeedDialog = true },
-                    onShowQualityDialog = { showQualityDialog = true },
+                    onShowQualityDialog = {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            qualityOptions = viewModel.getQualityOptions()
+                            showQualityDialog = true
+                            lastInteractionTime = System.currentTimeMillis()
+                        }
+                    },
                     onShowEpisodeList = {
                         showEpisodeListDialog = true
                         lastInteractionTime = System.currentTimeMillis()

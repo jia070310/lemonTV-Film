@@ -14,8 +14,10 @@ import com.lomen.tv.data.scraper.MediaScraper
 import com.lomen.tv.data.scraper.ScrapedMedia
 import com.lomen.tv.data.scraper.SmartMediaScraper
 import com.lomen.tv.data.scraper.TmdbScraper
+import com.lomen.tv.data.remote.RemoteFileClient
 import com.lomen.tv.data.webdav.WebDavClient
 import com.lomen.tv.data.webdav.WebDavFile
+import com.lomen.tv.data.guangya.GuangyaApiClient
 import com.lomen.tv.domain.model.ResourceLibrary
 import com.lomen.tv.domain.service.TmdbMetadataSyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -96,7 +98,11 @@ class MediaSyncViewModel @Inject constructor(
                 // 1. 扫描WebDAV文件
                 Log.d(TAG, "开始扫描WebDAV文件...")
                 val scanConcurrency = libraryScanPreferences.scanConcurrency.first()
-                val client = WebDavClient(library, scanConcurrency)
+                val client: RemoteFileClient = when (library.type) {
+                    ResourceLibrary.LibraryType.WEBDAV -> WebDavClient(library, scanConcurrency)
+                    ResourceLibrary.LibraryType.GUANGYA -> GuangyaApiClient(library, scanConcurrency)
+                    else -> WebDavClient(library, scanConcurrency)
+                }
                 val filesResult = withContext(Dispatchers.IO) {
                     client.listAllVideoFiles { count ->
                         _syncProgress.value = count to 0 // 扫描阶段，总数未知
@@ -152,7 +158,11 @@ class MediaSyncViewModel @Inject constructor(
                 // 1. 扫描WebDAV文件
                 Log.d(TAG, "开始扫描WebDAV文件...")
                 val scanConcurrency = libraryScanPreferences.scanConcurrency.first()
-                val client = WebDavClient(library, scanConcurrency)
+                val client: RemoteFileClient = when (library.type) {
+                    ResourceLibrary.LibraryType.WEBDAV -> WebDavClient(library, scanConcurrency)
+                    ResourceLibrary.LibraryType.GUANGYA -> GuangyaApiClient(library, scanConcurrency)
+                    else -> WebDavClient(library, scanConcurrency)
+                }
                 val filesResult = withContext(Dispatchers.IO) {
                     client.listAllVideoFiles { count ->
                         _syncProgress.value = count to 0 // 扫描阶段，总数未知
@@ -253,7 +263,7 @@ class MediaSyncViewModel @Inject constructor(
      */
     private suspend fun performScrapeAndSave(
         library: ResourceLibrary,
-        client: WebDavClient,
+        client: RemoteFileClient,
         files: List<WebDavFile>,
         modifiedPaths: Set<String> = emptySet()
     ) {

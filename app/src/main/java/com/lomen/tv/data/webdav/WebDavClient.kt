@@ -2,6 +2,7 @@ package com.lomen.tv.data.webdav
 
 import android.util.Base64
 import android.util.Log
+import com.lomen.tv.data.remote.RemoteFileClient
 import com.lomen.tv.domain.model.ResourceLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -33,7 +34,7 @@ data class WebDavFile(
 class WebDavClient(
     private val library: ResourceLibrary,
     private val scanConcurrency: Int = 10
-) {
+) : RemoteFileClient {
     companion object {
         private const val TAG = "WebDavClient"
         private val VIDEO_EXTENSIONS = listOf(".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".3gp")
@@ -74,7 +75,7 @@ class WebDavClient(
         }
     }
 
-    suspend fun listFiles(relativePath: String = ""): Result<List<WebDavFile>> = withContext(Dispatchers.IO) {
+    override suspend fun listFiles(relativePath: String): Result<List<WebDavFile>> = withContext(Dispatchers.IO) {
         try {
             if (preferOpenListApi) {
                 val openListResult = tryOpenListApi(relativePath)
@@ -442,8 +443,8 @@ class WebDavClient(
         return files
     }
 
-    suspend fun listAllVideoFiles(
-        onProgress: ((Int) -> Unit)? = null
+    override suspend fun listAllVideoFiles(
+        onProgress: ((Int) -> Unit)?
     ): Result<List<WebDavFile>> = withContext(Dispatchers.IO) {
         try {
             // 从用户配置的路径开始扫描（空字符串表示从配置的根目录开始）
@@ -635,13 +636,13 @@ class WebDavClient(
         return files
     }
 
-    fun getFileUrl(relativePath: String): String {
+    override fun getFileUrl(relativePath: String): String {
         val cleanPath = if (relativePath.startsWith("/")) relativePath.substring(1) else relativePath
         return getBaseUrl() + cleanPath
     }
 
     // 获取目录下的封面图片URL
-    suspend fun getCoverImage(directoryPath: String): String? = withContext(Dispatchers.IO) {
+    override suspend fun getCoverImage(directoryPath: String): String? = withContext(Dispatchers.IO) {
         val coverNames = listOf("poster.jpg", "poster.png", "cover.jpg", "cover.png", 
                                 "fanart.jpg", "fanart.png", "thumb.jpg", "thumb.png",
                                 "default.jpg", "default.png", "folder.jpg", "folder.png")
@@ -669,7 +670,7 @@ class WebDavClient(
      * @param relativePath 文件的相对路径
      * @return 文件内容字符串，如果读取失败返回 null
      */
-    suspend fun readTextFile(relativePath: String): String? = withContext(Dispatchers.IO) {
+    override suspend fun readTextFile(relativePath: String): String? = withContext(Dispatchers.IO) {
         try {
             val url = getFileUrl(relativePath)
             val request = Request.Builder()
@@ -703,7 +704,7 @@ class WebDavClient(
      * @param relativePath 文件的相对路径
      * @return 文件是否存在
      */
-    suspend fun fileExists(relativePath: String): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun fileExists(relativePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val url = getFileUrl(relativePath)
             val request = Request.Builder()

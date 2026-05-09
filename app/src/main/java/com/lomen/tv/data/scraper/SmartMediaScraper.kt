@@ -1,6 +1,7 @@
 package com.lomen.tv.data.scraper
 
 import android.util.Log
+import com.lomen.tv.data.remote.RemoteFileClient
 import com.lomen.tv.data.webdav.WebDavFile
 import com.lomen.tv.domain.model.MediaType
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +76,7 @@ class SmartMediaScraper {
     suspend fun scrapeBatchOptimized(
         files: List<WebDavFile>,
         onProgress: (Int, Int) -> Unit,
-        client: com.lomen.tv.data.webdav.WebDavClient? = null,
+        client: RemoteFileClient? = null,
         onItemsReady: suspend (List<ScrapedMedia>) -> Unit = {}
     ): List<ScrapedMedia> = withContext(Dispatchers.IO) {
         val total = files.size
@@ -179,7 +180,7 @@ class SmartMediaScraper {
      */
     private suspend fun scrapeSeriesInfo(
         file: WebDavFile,
-        client: com.lomen.tv.data.webdav.WebDavClient? = null
+        client: RemoteFileClient? = null
     ): ScrapedMedia? {
         val parentFolder = file.path.substringBeforeLast("/", "").substringAfterLast("/", "")
         val mediaInfo = MediaInfoExtractor.extract(file.name, parentFolder, file.path)
@@ -632,7 +633,7 @@ class SmartMediaScraper {
      */
     private suspend fun parseNfoFile(
         file: WebDavFile,
-        client: com.lomen.tv.data.webdav.WebDavClient? = null
+        client: RemoteFileClient? = null
     ): ScrapedMedia? {
         if (client == null) {
             // 没有 WebDAV 客户端，无法读取 nfo 文件

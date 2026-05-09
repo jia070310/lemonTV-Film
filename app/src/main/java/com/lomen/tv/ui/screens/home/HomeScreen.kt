@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.tv.foundation.PivotOffsets
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,12 +53,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.lomen.tv.domain.model.ResourceLibrary
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -120,6 +124,27 @@ private fun com.lomen.tv.ui.viewmodel.TvShowSeries.activityAt(): Long {
     val latestUpdated = episodes.maxOfOrNull { it.updatedAt } ?: 0L
     return maxOf(latestCreated, latestUpdated)
 }
+
+// 首页排序：优先按最近刮削更新时间(updatedAt)，并用 createdAt / id 打破并列。
+private fun List<com.lomen.tv.data.local.database.entity.WebDavMediaEntity>.sortedMediaForHome(): List<com.lomen.tv.data.local.database.entity.WebDavMediaEntity> =
+    sortedWith(
+        compareByDescending<com.lomen.tv.data.local.database.entity.WebDavMediaEntity> { it.updatedAt }
+            .thenByDescending { it.createdAt }
+            .thenByDescending { it.id }
+    )
+
+private fun com.lomen.tv.ui.viewmodel.TvShowSeries.latestUpdatedAt(): Long =
+    episodes.maxOfOrNull { it.updatedAt } ?: 0L
+
+private fun com.lomen.tv.ui.viewmodel.TvShowSeries.latestCreatedAt(): Long =
+    episodes.maxOfOrNull { it.createdAt } ?: 0L
+
+private fun List<com.lomen.tv.ui.viewmodel.TvShowSeries>.sortedSeriesForHome(): List<com.lomen.tv.ui.viewmodel.TvShowSeries> =
+    sortedWith(
+        compareByDescending<com.lomen.tv.ui.viewmodel.TvShowSeries> { it.latestUpdatedAt() }
+            .thenByDescending { it.latestCreatedAt() }
+            .thenByDescending { it.id }
+    )
 
 private fun FocusRequester.tryRequestFocus(): Boolean {
     return runCatching {
@@ -207,14 +232,14 @@ fun HomeScreen(
     val currentLibrary by resourceLibraryViewModel.currentLibraryId.collectAsState()
     val mediaSortOrder by resourceLibraryViewModel.mediaSortOrder.collectAsState()
 
-    // 首页按“最近活动优先”排序：最近更新与新加入都排在前面
-    val movies = moviesRaw.sortedByDescending { it.activityAt() }
-    val variety = varietyRaw.sortedByDescending { it.activityAt() }
-    val concerts = concertsRaw.sortedByDescending { it.activityAt() }
-    val documentaries = documentariesRaw.sortedByDescending { it.activityAt() }
-    val others = othersRaw.sortedByDescending { it.activityAt() }
-    val tvShows = tvShowsRaw.sortedByDescending { it.activityAt() }
-    val anime = animeRaw.sortedByDescending { it.activityAt() }
+    // 首页按“最近刮削优先”排序：第一张始终优先展示最新写入刮削结果。
+    val movies = moviesRaw.sortedMediaForHome()
+    val variety = varietyRaw.sortedSeriesForHome()
+    val concerts = concertsRaw.sortedMediaForHome()
+    val documentaries = documentariesRaw.sortedMediaForHome()
+    val others = othersRaw.sortedMediaForHome()
+    val tvShows = tvShowsRaw.sortedSeriesForHome()
+    val anime = animeRaw.sortedSeriesForHome()
     val rowSpecs = remember(
         recentWatchHistory,
         mediaSortOrder,
@@ -347,6 +372,16 @@ fun HomeScreen(
     val syncProgress by mediaSyncViewModel.syncProgress.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     var showTmdbScanPill by remember { mutableStateOf(false) }
+
+    // 刮削过程中媒体列表会频繁流式更新：如果每次更新都强制横向滚动归零，会造成明显闪烁。
+    // 这里仅在“进入同步中”时触发一次“横向列表回到起点”的信号。
+    val isSyncing =
+        syncState is com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Scanning ||
+            syncState is com.lomen.tv.ui.viewmodel.MediaSyncViewModel.SyncState.Scraping
+    var homeRowResetNonce by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isSyncing) {
+        if (isSyncing) homeRowResetNonce++
+    }
 
     LaunchedEffect(syncState) {
         android.util.Log.d("HomeScreen", "Sync state changed: $syncState, progress: $syncProgress")
@@ -514,7 +549,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -542,7 +579,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -570,7 +609,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -598,7 +639,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -626,7 +669,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -654,7 +699,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -682,7 +729,9 @@ fun HomeScreen(
                                     isFirstContentRow = rowIndexCursor == 0,
                                     onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
                                     showTopVersionBadge = showVersionBadgeOverlay,
-                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                                    topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                    resetToStartNonce = homeRowResetNonce,
+                                    pinStartWhileSyncing = isSyncing
                                 )
                             }
                             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -1821,15 +1870,54 @@ private fun WebDavMoviesRow(
     isFirstContentRow: Boolean,
     onFocusedColumnChanged: (Int) -> Unit,
     showTopVersionBadge: Boolean = false,
-    topVersionBadgeFocusRequester: FocusRequester? = null
+    topVersionBadgeFocusRequester: FocusRequester? = null,
+    resetToStartNonce: Int = 0,
+    pinStartWhileSyncing: Boolean = false
 ) {
     val displayCount = movies.size.coerceAtMost(HOME_SECTION_MAX_ITEMS)
     val totalItems = displayCount + if (showMore) 1 else 0
 
+    // 锁住横向滚动偏移：刮削过程中数据库刷新导致列表重排时，
+    // 避免 TvLazyRow 自动调整 scroll，从而把“第一张卡片”视觉位置挪走。
+    val listState = rememberTvLazyListState(0)
+    var handledResetNonce by remember { mutableIntStateOf(0) }
+    LaunchedEffect(resetToStartNonce, displayCount) {
+        // 每轮刮削只处理一次；若触发时还没有数据，等有数据后再执行。
+        if (resetToStartNonce > handledResetNonce && displayCount > 0) {
+            listState.scrollToItem(0)
+            handledResetNonce = resetToStartNonce
+        }
+    }
+    LaunchedEffect(pinStartWhileSyncing) {
+        if (!pinStartWhileSyncing) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (firstIndex, firstOffset) ->
+                // 刮削中把首位锚定在第1张卡片，防止系统焦点/重排把首卡挤出屏幕左侧
+                if (firstIndex != 0 || firstOffset != 0) {
+                    listState.scrollToItem(0)
+                }
+            }
+    }
+
+    val rowModifier =
+        if (pinStartWhileSyncing) {
+            Modifier
+                .padding(start = 48.dp)
+                .clipToBounds()
+        } else {
+            Modifier
+        }
+    val rowContentPadding =
+        if (pinStartWhileSyncing) PaddingValues(start = 0.dp, end = 120.dp)
+        else PaddingValues(start = 48.dp, end = 120.dp)
+
     TvLazyRow(
-        contentPadding = PaddingValues(start = 48.dp, end = 120.dp),
+        modifier = rowModifier,
+        state = listState,
+        contentPadding = rowContentPadding,
         horizontalArrangement = Arrangement.spacedBy(24.dp),
-        pivotOffsets = PivotOffsets(parentFraction = 0.2f)
+        pivotOffsets = PivotOffsets(parentFraction = if (pinStartWhileSyncing) 0f else 0.2f)
     ) {
         items(
             count = totalItems,
@@ -1907,15 +1995,53 @@ private fun WebDavTvShowsRow(
     isFirstContentRow: Boolean,
     onFocusedColumnChanged: (Int) -> Unit,
     showTopVersionBadge: Boolean = false,
-    topVersionBadgeFocusRequester: FocusRequester? = null
+    topVersionBadgeFocusRequester: FocusRequester? = null,
+    resetToStartNonce: Int = 0,
+    pinStartWhileSyncing: Boolean = false
 ) {
     val displayCount = tvShows.size.coerceAtMost(HOME_SECTION_MAX_ITEMS)
     val totalItems = displayCount + if (showMore) 1 else 0
 
+    // 同步锁住横向滚动偏移：避免列表刷新时，第一张卡片的视觉位置被自动挪动。
+    val listState = rememberTvLazyListState(0)
+    var handledResetNonce by remember { mutableIntStateOf(0) }
+    LaunchedEffect(resetToStartNonce, displayCount) {
+        // 每轮刮削只处理一次；若触发时还没有数据，等有数据后再执行。
+        if (resetToStartNonce > handledResetNonce && displayCount > 0) {
+            listState.scrollToItem(0)
+            handledResetNonce = resetToStartNonce
+        }
+    }
+    LaunchedEffect(pinStartWhileSyncing) {
+        if (!pinStartWhileSyncing) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (firstIndex, firstOffset) ->
+                // 刮削中把首位锚定在第1张卡片，防止系统焦点/重排把首卡挤出屏幕左侧
+                if (firstIndex != 0 || firstOffset != 0) {
+                    listState.scrollToItem(0)
+                }
+            }
+    }
+
+    val rowModifier =
+        if (pinStartWhileSyncing) {
+            Modifier
+                .padding(start = 48.dp)
+                .clipToBounds()
+        } else {
+            Modifier
+        }
+    val rowContentPadding =
+        if (pinStartWhileSyncing) PaddingValues(start = 0.dp, end = 120.dp)
+        else PaddingValues(start = 48.dp, end = 120.dp)
+
     TvLazyRow(
-        contentPadding = PaddingValues(start = 48.dp, end = 120.dp),
+        modifier = rowModifier,
+        state = listState,
+        contentPadding = rowContentPadding,
         horizontalArrangement = Arrangement.spacedBy(24.dp),
-        pivotOffsets = PivotOffsets(parentFraction = 0.2f)
+        pivotOffsets = PivotOffsets(parentFraction = if (pinStartWhileSyncing) 0f else 0.2f)
     ) {
         items(
             count = totalItems,

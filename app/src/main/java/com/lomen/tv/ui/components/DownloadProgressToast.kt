@@ -34,7 +34,7 @@ fun DownloadProgressToast(
             modifier = modifier
                 .padding(bottom = 100.dp)
                 .background(
-                    color = PrimaryYellow,
+                    color = Color.White.copy(alpha = 0.75f),
                     shape = RoundedCornerShape(24.dp)
                 )
                 .padding(horizontal = 20.dp, vertical = 12.dp),
@@ -52,7 +52,7 @@ fun DownloadProgressToast(
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = null,
-                    tint = PrimaryYellow,
+                    tint = Color.Black,
                     modifier = Modifier.size(18.dp)
                 )
             }

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -261,6 +262,7 @@ private fun LibraryItem(
                         when (library.type) {
                             ResourceLibrary.LibraryType.WEBDAV -> Color(0xFF3b82f6).copy(alpha = 0.2f)
                             ResourceLibrary.LibraryType.QUARK -> Color(0xFF10b981).copy(alpha = 0.2f)
+                            ResourceLibrary.LibraryType.GUANGYA -> Color(0xFFf59e0b).copy(alpha = 0.2f)
                         }
                     ),
                 contentAlignment = Alignment.Center
@@ -269,11 +271,13 @@ private fun LibraryItem(
                     imageVector = when (library.type) {
                         ResourceLibrary.LibraryType.WEBDAV -> Icons.Default.Storage
                         ResourceLibrary.LibraryType.QUARK -> Icons.Default.Cloud
+                        ResourceLibrary.LibraryType.GUANGYA -> Icons.Default.Cloud
                     },
                     contentDescription = null,
                     tint = when (library.type) {
                         ResourceLibrary.LibraryType.WEBDAV -> Color(0xFF60a5fa)
                         ResourceLibrary.LibraryType.QUARK -> Color(0xFF34d399)
+                        ResourceLibrary.LibraryType.GUANGYA -> Color(0xFFfbbf24)
                     },
                     modifier = Modifier.size(24.dp)
                 )
@@ -297,6 +301,30 @@ private fun LibraryItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (library.type == ResourceLibrary.LibraryType.GUANGYA) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val mode = library.guangyaLoginMode ?: ResourceLibrary.GuangyaLoginMode.QR
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (mode == ResourceLibrary.GuangyaLoginMode.QR) {
+                            Icon(
+                                imageVector = Icons.Default.QrCode,
+                                contentDescription = "二维码登录",
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "手机号登录",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
             if (isSelected) {
                 Spacer(modifier = Modifier.width(12.dp))
