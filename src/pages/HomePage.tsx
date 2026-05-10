@@ -1,6 +1,7 @@
 import { useState, useRef, useLayoutEffect, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { scrollHomeHeroIntoView } from '@/lib/scrollHomeHero'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
@@ -46,40 +47,47 @@ function HomeHeroTile({
       ref={heroRef}
       id={i === 0 ? 'home-first-poster' : undefined}
       data-hero-index={i}
-      {...spatial}
       className={cn(
-        'hero-carousel-item poster-focus relative rounded-xl overflow-hidden cursor-pointer transition-[width] duration-200 ease-out flex-shrink-0 h-[280px]',
+        'hero-carousel-item relative h-[280px] flex-shrink-0 cursor-pointer overflow-visible rounded-xl transition-[width] duration-200 ease-out',
         i === heroIndex ? 'w-[420px]' : 'w-[160px]'
       )}
-      onFocus={() => {
-        heroIndexRef.current = i
-        setHeroIndex(i)
-      }}
       onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          navigate(`/detail/${movie.id}`)
-        }
-      }}
     >
-      <img
-        src={i === heroIndex ? (movie.backdrop || movie.poster) : movie.poster}
-        alt={movie.title}
-        className="w-full h-full object-cover"
-      />
+      <div className="absolute inset-0 z-0 overflow-hidden rounded-xl">
+        <div
+          {...spatial}
+          data-hero-index={i}
+          className="poster-focus tv-focusable absolute inset-0 z-[1] outline-none"
+          onFocus={() => {
+            heroIndexRef.current = i
+            setHeroIndex(i)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              navigate(`/detail/${movie.id}`)
+            }
+          }}
+        >
+          <img
+            src={i === heroIndex ? (movie.backdrop || movie.poster) : movie.poster}
+            alt={movie.title}
+            className="h-full w-full rounded-xl object-cover"
+          />
+        </div>
+      </div>
       {i === heroIndex && (
-        <div className="absolute inset-0 gradient-hero flex flex-col justify-end p-6">
-          <h2 className="text-2xl font-bold text-foreground mb-1">{movie.title}</h2>
-          <p className="text-sm text-muted-foreground mb-3 line-clamp-2 max-w-[280px]">
+        <div className="pointer-events-none absolute inset-0 z-[2] flex flex-col justify-end overflow-hidden rounded-xl p-6 gradient-hero">
+          <h2 className="mb-1 text-2xl font-bold text-foreground">{movie.title}</h2>
+          <p className="mb-3 line-clamp-2 max-w-[280px] text-sm text-muted-foreground">
             {movie.description}
           </p>
           <div className="flex items-center gap-3">
-            <span className="text-primary font-bold text-sm">{movie.rating} 分</span>
-            <span className="text-muted-foreground text-xs">{movie.year}</span>
-            <span className="text-muted-foreground text-xs">{movie.genre}</span>
+            <span className="text-sm font-bold text-primary">{movie.rating} 分</span>
+            <span className="text-xs text-muted-foreground">{movie.year}</span>
+            <span className="text-xs text-muted-foreground">{movie.genre}</span>
             {movie.tag && (
-              <span className="tv-tab-selected text-xs px-2 py-0.5 rounded-full">
+              <span className="rounded-full px-2 py-0.5 text-xs tv-tab-selected">
                 {movie.tag}
               </span>
             )}
@@ -87,8 +95,8 @@ function HomeHeroTile({
         </div>
       )}
       {i !== heroIndex && (
-        <div className="absolute inset-x-0 bottom-0 gradient-card p-3">
-          <p className="text-xs font-medium text-foreground truncate">{movie.title}</p>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] overflow-hidden rounded-b-xl gradient-card p-3">
+          <p className="truncate text-xs font-medium text-foreground">{movie.title}</p>
         </div>
       )}
     </div>
@@ -194,50 +202,48 @@ function HomeGridCell({
   movie,
   total,
   activeCategory,
-  navigate,
 }: {
   index: number
   movie: Movie
   total: number
   activeCategory: number
-  navigate: (path: string) => void
 }) {
   const row = Math.floor(index / GRID_COLS)
   const col = index % GRID_COLS
 
   const spatial = useTvSpatialNode(
     `home-grid-${index}`,
-    () => ({
+    () => {
+      const downIdx = gridDownNeighborIndex(index, total, GRID_COLS)
+      return {
       up:
         row === 0
           ? `home-cat-${activeCategory}`
           : `home-grid-${index - GRID_COLS}`,
-      down:
-        index + GRID_COLS < total ? `home-grid-${index + GRID_COLS}` : undefined,
+      down: downIdx !== undefined ? `home-grid-${downIdx}` : undefined,
       left: col === 0 ? 'nav-0' : `home-grid-${index - 1}`,
       right:
         col < GRID_COLS - 1 && index + 1 < total
           ? `home-grid-${index + 1}`
           : undefined,
-    }),
+      }
+    },
     [index, total, activeCategory]
   )
 
   return (
     <div
-      {...spatial}
       data-card-index={index}
       id={index === 0 ? 'home-first-card' : undefined}
-      className="poster-focus tv-focusable rounded-lg outline-none"
-      onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          navigate(`/detail/${movie.id}`)
-        }
-      }}
+      className="rounded-lg outline-none"
     >
-      <PosterCard movie={movie} size="lg" focusable={false} className="w-full" />
+      <PosterCard
+        movie={movie}
+        size="lg"
+        focusable={false}
+        posterShellProps={{ ...spatial }}
+        className="w-full"
+      />
     </div>
   )
 }
@@ -345,7 +351,6 @@ export function HomePage() {
               movie={movie}
               total={movieList.length}
               activeCategory={activeCategory}
-              navigate={navigate}
             />
           ))}
         </div>

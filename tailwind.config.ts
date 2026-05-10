@@ -78,8 +78,8 @@ const config: Config = {
           to: { opacity: "1", transform: "scale(1)" },
         },
         "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 20px hsl(var(--lemon) / 0.3)" },
-          "50%": { boxShadow: "0 0 40px hsl(var(--lemon) / 0.6)" },
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.88" },
         },
         "progress-fill": {
           from: { width: "0%" },

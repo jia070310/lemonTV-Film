@@ -1,3 +1,4 @@
+import type { ComponentPropsWithoutRef } from 'react'
 import { cn } from '@/lib/utils'
 import type { Movie } from '@/data/mockData'
 import { useNavigate } from 'react-router-dom'
@@ -6,12 +7,21 @@ interface PosterCardProps {
   movie: Movie
   size?: 'xs' | 'sm' | 'md' | 'lg'
   showInfo?: boolean
-  /** When false, parent handles focus ring (avoids nested focusables). Default true. */
+  /** When false, parent can pass posterShellProps to put spatial focus on the cover only */
   focusable?: boolean
+  /** Spread onto the poster (cover) node — use with focusable={false} for TV spatial */
+  posterShellProps?: Omit<ComponentPropsWithoutRef<'div'>, 'children'>
   className?: string
 }
 
-export function PosterCard({ movie, size = 'md', showInfo = true, focusable = true, className }: PosterCardProps) {
+export function PosterCard({
+  movie,
+  size = 'md',
+  showInfo = true,
+  focusable = true,
+  posterShellProps,
+  className,
+}: PosterCardProps) {
   const navigate = useNavigate()
 
   const sizeClasses = {
@@ -21,46 +31,72 @@ export function PosterCard({ movie, size = 'md', showInfo = true, focusable = tr
     lg: 'w-[200px]',
   }
 
+  const rawShell = !focusable ? posterShellProps : undefined
+  const {
+    className: shellClass,
+    onKeyDown: shellOnKeyDown,
+    tabIndex: _omitTab,
+    ...shellRest
+  } = rawShell ?? {}
+
+  const posterShellInteractive = focusable || Boolean(posterShellProps)
+
+  const go = () => navigate(`/detail/${movie.id}`)
+
   return (
     <div
       className={cn(
-        focusable && 'poster-focus tv-focusable',
-        'flex-shrink-0 cursor-pointer group',
+        'group flex flex-shrink-0 cursor-pointer flex-col',
         sizeClasses[size],
         className
       )}
-      tabIndex={focusable ? 0 : -1}
-      onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/detail/${movie.id}`) }}
+      onClick={go}
     >
-      <div className="relative aspect-[2/3] rounded-lg overflow-hidden tv-card">
+      <div
+        {...shellRest}
+        tabIndex={posterShellInteractive ? 0 : -1}
+        className={cn(
+          posterShellInteractive && 'poster-focus tv-focusable',
+          'relative aspect-[2/3] overflow-hidden rounded-lg tv-card outline-none',
+          shellClass
+        )}
+        onKeyDown={(e) => {
+          shellOnKeyDown?.(e)
+          if (e.defaultPrevented) return
+          if (posterShellInteractive && e.key === 'Enter') {
+            e.preventDefault()
+            go()
+          }
+        }}
+      >
         <img
           src={movie.poster}
           alt={movie.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
         />
-        {/* Rating badge */}
-        <div className="absolute top-2 right-2 bg-background/70 backdrop-blur-sm px-1.5 py-0.5 rounded text-xs font-bold text-primary border border-primary/30">
+        <div className="absolute right-2 top-2 rounded border border-primary/30 bg-background/70 px-1.5 py-0.5 text-xs font-bold text-primary backdrop-blur-sm">
           {movie.rating}
         </div>
-        {/* Tag badge */}
         {movie.tag && (
-          <div className={cn(
-            'absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-bold',
-            movie.tag === '热门' ? 'bg-primary text-primary-foreground' : 'bg-blue-600 text-foreground'
-          )}>
+          <div
+            className={cn(
+              'absolute left-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-bold',
+              movie.tag === '热门'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-blue-600 text-foreground'
+            )}
+          >
             {movie.tag}
           </div>
         )}
-        {/* Bottom gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-1/3 gradient-card" />
+        <div className="gradient-card absolute inset-x-0 bottom-0 h-1/3" />
       </div>
       {showInfo && (
         <div className={cn('mt-1.5 px-0.5', size === 'xs' && 'mt-1')}>
           <h3
             className={cn(
-              'font-medium text-foreground truncate',
+              'truncate font-medium text-foreground',
               size === 'xs' ? 'text-xs' : 'text-sm'
             )}
           >
@@ -68,7 +104,7 @@ export function PosterCard({ movie, size = 'md', showInfo = true, focusable = tr
           </h3>
           <p
             className={cn(
-              'text-muted-foreground mt-0.5',
+              'mt-0.5 text-muted-foreground',
               size === 'xs' ? 'text-[10px] leading-tight' : 'text-xs'
             )}
           >

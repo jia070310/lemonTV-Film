@@ -40,8 +40,8 @@
 
     /* Shadows */
     --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
-    --shadow-focus: 0 0 0 3px hsl(52 97% 52% / 0.8), 0 0 20px hsl(52 97% 52% / 0.3);
-    --shadow-glow: 0 0 30px hsl(52 97% 52% / 0.4);
+    --shadow-focus: 0 0 0 3px hsl(52 97% 52% / 0.8);
+    --shadow-glow: none;
     --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.6);
   }
 }
@@ -81,6 +81,31 @@
     color: hsl(var(--primary-foreground));
   }
 
+  /*
+   * 筛选页侧栏：不做放大；焦点时抬升到兄弟节点之上，避免被上下条目压住或裁切感
+   * （需 position: relative，否则单纯 z-index 在静态流里不稳定）
+   */
+  .tv-focusable.filter-sidebar-btn {
+    position: relative;
+    z-index: 0;
+  }
+
+  .tv-focusable.filter-sidebar-btn:focus-visible {
+    transform: none;
+    z-index: 50;
+  }
+
+  /* 收藏 / 观看历史：焦点卡片抬升到网格最上层，描边不被相邻格压住 */
+  .library-poster-cell {
+    position: relative;
+    z-index: 0;
+  }
+
+  .library-poster-cell:has(.poster-focus:focus-visible),
+  .library-poster-cell:has(.poster-focus:focus) {
+    z-index: 50;
+  }
+
   /* Selected pill/tab (keyboard “checked” state, not focus ring) */
   .tv-tab-selected {
     background-color: hsl(0 0% 22%);
@@ -89,7 +114,7 @@
 
   /*
    * Poster / hero focus: ring follows border-radius (outline is rectangular on some UIs).
-   * Single rounded stroke + glow, no outline.
+   * Solid stroke only, no outer glow.
    */
   .poster-focus {
     transition-property: box-shadow, transform;
@@ -97,36 +122,43 @@
     transition-timing-function: ease-out;
   }
 
-  .poster-focus:focus-visible {
+  /*
+   * TV 空间导航用 element.focus() 时往往没有 :focus-visible，需同时匹配 :focus。
+   */
+  .poster-focus:focus-visible,
+  .poster-focus:focus {
     outline: none;
     transform: scale(1.03);
     z-index: 20;
-    box-shadow:
-      0 0 0 3px hsl(var(--lemon)),
-      0 0 24px hsl(52 97% 52% / 0.35);
+    box-shadow: 0 0 0 3px hsl(var(--lemon));
   }
 
   /* Poster also uses .tv-focusable: prefer card-shaped ring over generic focus shadow */
-  .poster-focus.tv-focusable:focus-visible {
-    box-shadow:
-      0 0 0 3px hsl(var(--lemon)),
-      0 0 24px hsl(52 97% 52% / 0.35);
+  .poster-focus.tv-focusable:focus-visible,
+  .poster-focus.tv-focusable:focus {
+    box-shadow: 0 0 0 3px hsl(var(--lemon));
     transform: scale(1.03);
   }
 
-  /* Top hero strip: width handles “zoom”; drop scale so focus ring isn’t clipped & neighbors don’t mis-align */
-  #hero-carousel-scroll .hero-carousel-item.poster-focus:focus-visible {
+  /*
+   * 首页海报条：展开态 z-[2] 文案渐变会盖住内层 box-shadow。
+   * 描边画在外壳 :focus-within 上，并取消内层阴影以免重复。
+   */
+  #hero-carousel-scroll .hero-carousel-item:focus-within {
+    z-index: 25;
+    box-shadow: 0 0 0 3px hsl(var(--lemon));
+  }
+
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus-visible,
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus {
     transform: none;
-    box-shadow:
-      0 0 0 3px hsl(var(--lemon)),
-      0 0 24px hsl(52 97% 52% / 0.35);
+    box-shadow: none;
   }
 
   /* Pill button focus — yellow background, black text */
   .pill-focus:focus-visible {
     background-color: hsl(var(--lemon)) !important;
     color: hsl(var(--primary-foreground)) !important;
-    box-shadow: var(--shadow-glow);
     transform: scale(1.02);
   }
 

@@ -108,7 +108,11 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
       const next = document.querySelector(
         `[data-spatial-id="${nextId}"]`
       ) as HTMLElement | null
-      if (!next || typeof next.focus !== 'function') return
+      if (!next || typeof next.focus !== 'function') {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
 
       e.preventDefault()
       e.stopPropagation()

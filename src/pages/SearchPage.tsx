@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
 import { movieList } from '@/data/mockData'
@@ -45,53 +45,46 @@ function SearchResultCell({
   index,
   movie,
   total,
-  navigate,
 }: {
   index: number
   movie: Movie
   total: number
-  navigate: (path: string) => void
 }) {
   const row = Math.floor(index / GRID_COLS)
   const col = index % GRID_COLS
 
   const spatial = useTvSpatialNode(
     `search-grid-${index}`,
-    () => ({
+    () => {
+      const downIdx = gridDownNeighborIndex(index, total, GRID_COLS)
+      return {
       up:
         row === 0 ? undefined : `search-grid-${index - GRID_COLS}`,
-      down:
-        index + GRID_COLS < total
-          ? `search-grid-${index + GRID_COLS}`
-          : undefined,
+      down: downIdx !== undefined ? `search-grid-${downIdx}` : undefined,
       left: col === 0 ? 'nav-0' : `search-grid-${index - 1}`,
       right:
         col < GRID_COLS - 1 && index + 1 < total
           ? `search-grid-${index + 1}`
           : undefined,
-    }),
+      }
+    },
     [index, total]
   )
 
   return (
-    <div
-      {...spatial}
-      className="poster-focus tv-focusable rounded-lg outline-none"
-      onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          navigate(`/detail/${movie.id}`)
-        }
-      }}
-    >
-      <PosterCard movie={movie} size="lg" focusable={false} className="w-full" />
+    <div className="rounded-lg outline-none">
+      <PosterCard
+        movie={movie}
+        size="lg"
+        focusable={false}
+        posterShellProps={{ ...spatial }}
+        className="w-full"
+      />
     </div>
   )
 }
 
 export function SearchPage() {
-  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<typeof movieList>([])
   const [hasSearched, setHasSearched] = useState(false)
@@ -191,7 +184,6 @@ export function SearchPage() {
                     index={i}
                     movie={movie}
                     total={results.length}
-                    navigate={navigate}
                   />
                 ))}
               </div>

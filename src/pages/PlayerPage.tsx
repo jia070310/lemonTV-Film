@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { triggerAppBackNavigation } from '@/components/AppBackHandler'
 import { cn } from '@/lib/utils'
 import { heroMovies } from '@/data/mockData'
 import {
@@ -323,7 +324,8 @@ export function PlayerPage() {
             setControlsMode(null)
             setFocusedZone('none')
           } else {
-            navigate(-1)
+            e.preventDefault()
+            triggerAppBackNavigation()
           }
           break
         }
@@ -331,7 +333,7 @@ export function PlayerPage() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [activePanel, showControls, controlsMode, focusedZone, showResumePrompt, showNextEpisodePrompt, handleSeek, resetHideTimer, navigate, handleNextEpisode])
+  }, [activePanel, showControls, controlsMode, focusedZone, showResumePrompt, showNextEpisodePrompt, handleSeek, resetHideTimer, handleNextEpisode])
 
   const handleResumeContinue = () => {
     setShowResumePrompt(false)
@@ -610,7 +612,7 @@ export function PlayerPage() {
               <div
                 className={cn(
                   'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full bg-primary transition-all duration-200',
-                  progressFocused ? 'w-4 h-4 shadow-[var(--shadow-glow)]' : 'w-3 h-3'
+                  progressFocused ? 'w-4 h-4' : 'w-3 h-3'
                 )}
                 style={{ left: `${progress}%` }}
               />
@@ -636,7 +638,7 @@ export function PlayerPage() {
               </button>
               <button
                 className={cn(
-                  'tv-focusable w-12 h-12 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center text-foreground transition-all hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground focus-visible:shadow-[var(--shadow-glow)]',
+                  'tv-focusable w-12 h-12 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center text-foreground transition-all hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground',
                   focusedZone === 'bottom' && 'ring-2 ring-primary/50'
                 )}
                 tabIndex={0}

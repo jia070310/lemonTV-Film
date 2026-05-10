@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom'
+import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { cn } from '@/lib/utils'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
@@ -60,14 +60,12 @@ function LibraryGridCell({
   movie,
   total,
   tabUpId,
-  navigate,
   showProgress,
 }: {
   index: number
   movie: Movie
   total: number
   tabUpId: string
-  navigate: (path: string) => void
   showProgress: boolean
 }) {
   const row = Math.floor(index / GRID_COLS)
@@ -75,40 +73,36 @@ function LibraryGridCell({
 
   const spatial = useTvSpatialNode(
     `library-grid-${index}`,
-    () => ({
+    () => {
+      const downIdx = gridDownNeighborIndex(index, total, GRID_COLS)
+      return {
       up: row === 0 ? tabUpId : `library-grid-${index - GRID_COLS}`,
-      down:
-        index + GRID_COLS < total
-          ? `library-grid-${index + GRID_COLS}`
-          : undefined,
+      down: downIdx !== undefined ? `library-grid-${downIdx}` : undefined,
       left: col === 0 ? 'nav-0' : `library-grid-${index - 1}`,
       right:
         col < GRID_COLS - 1 && index + 1 < total
           ? `library-grid-${index + 1}`
           : undefined,
-    }),
+      }
+    },
     [index, total, tabUpId]
   )
 
   return (
-    <div className="relative">
-      <div
-        {...spatial}
-        className="poster-focus tv-focusable rounded-lg outline-none"
-        onClick={() => navigate(`/detail/${movie.id}`)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            navigate(`/detail/${movie.id}`)
-          }
-        }}
-      >
-        <PosterCard movie={movie} size="lg" focusable={false} className="w-full" />
+    <div className="library-poster-cell relative">
+      <div className="relative z-[1]">
+        <PosterCard
+          movie={movie}
+          size="lg"
+          focusable={false}
+          posterShellProps={{ ...spatial }}
+          className="w-full"
+        />
       </div>
       {showProgress && (
-        <div className="absolute bottom-0 left-0 right-0 mx-0.5 h-1 bg-muted rounded-full overflow-hidden pointer-events-none">
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 mx-0.5 h-1 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full bg-primary rounded-full"
+            className="h-full rounded-full bg-primary"
             style={{ width: `${Math.max(15, Math.min(95, 30 + index * 8))}%` }}
           />
         </div>
@@ -118,7 +112,6 @@ function LibraryGridCell({
 }
 
 export function LibraryPage() {
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('tab') as TabType) || 'favorite'
 
@@ -133,7 +126,7 @@ export function LibraryPage() {
   useTvSpatialMainEntry('library-tab-0')
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-hidden p-8">
+    <div className="flex h-full flex-col overflow-hidden bg-background p-8">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
           <LibraryTabBtn
@@ -157,9 +150,9 @@ export function LibraryPage() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto thin-scrollbar">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden thin-scrollbar scroll-py-10 px-0.5 py-3">
         {items.length > 0 ? (
-          <div className="grid grid-cols-6 gap-4 pb-8">
+          <div className="grid grid-cols-6 gap-4 pb-10">
             {items.map((movie, i) => (
               <LibraryGridCell
                 key={`${movie.id}-${i}`}
@@ -167,7 +160,6 @@ export function LibraryPage() {
                 movie={movie}
                 total={items.length}
                 tabUpId={tabUpId}
-                navigate={navigate}
                 showProgress={!isFavorite}
               />
             ))}

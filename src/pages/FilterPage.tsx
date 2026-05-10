@@ -1,12 +1,13 @@
-import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
+import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { movieList, filterData } from '@/data/mockData'
 import type { FilterKey } from '@/data/mockData'
 import type { Movie } from '@/data/mockData'
-import { Search, ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
 
 const FILTER_KEYS = Object.keys(filterData) as FilterKey[]
 const FILTER_COLS = 5
@@ -19,6 +20,14 @@ const categoryToTypeMap: Record<string, string> = {
   '动漫': '动画片',
 }
 
+/** 与 Layout.tsx 中 navItems 顺序一致：电视剧=1、电影=2、综艺=3、动漫=4 */
+const FILTER_CATEGORY_TO_NAV_INDEX: Record<string, number> = {
+  电视剧: 1,
+  电影: 2,
+  综艺: 3,
+  动漫: 4,
+}
+
 function FilterSidebarRow({
   index,
   fk,
@@ -26,6 +35,7 @@ function FilterSidebarRow({
   filters,
   filterLabels,
   toggleFilter,
+  navLeftId,
 }: {
   index: number
   fk: FilterKey
@@ -33,10 +43,13 @@ function FilterSidebarRow({
   filters: Record<FilterKey, string>
   filterLabels: Record<FilterKey, string>
   toggleFilter: (key: FilterKey) => void
+  /** 左侧全局分类栏 spatial id，例如 nav-1 */
+  navLeftId: string
 }) {
   const spatial = useTvSpatialNode(
     `filter-sb-${index}`,
     () => ({
+      left: navLeftId,
       up: index > 0 ? `filter-sb-${index - 1}` : undefined,
       down:
         index < FILTER_KEYS.length - 1 ? `filter-sb-${index + 1}` : undefined,
@@ -45,7 +58,7 @@ function FilterSidebarRow({
           ? `filter-opt-${fk}-0`
           : 'filter-grid-0',
     }),
-    [index, activeFilter, fk]
+    [index, activeFilter, fk, navLeftId]
   )
 
   return (
@@ -53,7 +66,7 @@ function FilterSidebarRow({
       type="button"
       {...spatial}
       className={cn(
-        'tv-focusable tv-focus-yellow w-full flex flex-col items-start p-3.5 rounded-xl text-left transition-[box-shadow,transform,colors] duration-150 ease-out',
+        'filter-sidebar-btn tv-focusable tv-focus-yellow w-full flex flex-col items-start gap-0 rounded-md px-2.5 py-1.5 text-left transition-[box-shadow,background-color,color,border-color] duration-150 ease-out',
         activeFilter === fk
           ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
@@ -62,13 +75,44 @@ function FilterSidebarRow({
     >
       <span
         className={cn(
-          'text-xs',
+          'text-[10px] leading-tight',
           activeFilter === fk ? 'text-white/70' : 'text-muted-foreground'
         )}
       >
         {filterLabels[fk]}
       </span>
-      <span className="text-base font-medium mt-0.5">{filters[fk]}</span>
+      <span className="text-xs font-medium leading-tight">{filters[fk]}</span>
+    </button>
+  )
+}
+
+function FilterModalClose({
+  activeFilter,
+  filterKeyIndex,
+  onClose,
+}: {
+  activeFilter: FilterKey
+  filterKeyIndex: number
+  onClose: () => void
+}) {
+  const spatial = useTvSpatialNode(
+    'filter-modal-close',
+    () => ({
+      left: `filter-sb-${filterKeyIndex}`,
+      down: `filter-opt-${activeFilter}-0`,
+    }),
+    [activeFilter, filterKeyIndex]
+  )
+
+  return (
+    <button
+      type="button"
+      {...spatial}
+      className="tv-focusable tab-focus flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary text-secondary-foreground transition-colors hover:bg-surface-hover"
+      onClick={onClose}
+      aria-label="关闭"
+    >
+      <X size={20} className="text-foreground" strokeWidth={2} />
     </button>
   )
 }
@@ -107,7 +151,7 @@ function FilterOverlayOption({
           : undefined,
       up:
         row === 0
-          ? `filter-sb-${filterKeyIndex}`
+          ? 'filter-modal-close'
           : `${idPrefix}-${optIndex - FILTER_OPT_COLS}`,
       down:
         optIndex + FILTER_OPT_COLS < optionsLen
@@ -138,54 +182,54 @@ function FilterGridCell({
   index,
   movie,
   total,
-  navigate,
+  footerDownId,
 }: {
   index: number
   movie: Movie
   total: number
-  navigate: (path: string) => void
+  /** 最后一行按下进入页脚的首个可聚焦节点（上一页禁用时不能指向 filter-pg-prev） */
+  footerDownId: string
 }) {
   const row = Math.floor(index / FILTER_COLS)
   const col = index % FILTER_COLS
   const lastRowStart = Math.floor((total - 1) / FILTER_COLS) * FILTER_COLS
   const onLastRow = index >= lastRowStart
-  const noCellBelow = index + FILTER_COLS >= total
 
   const spatial = useTvSpatialNode(
     `filter-grid-${index}`,
-    () => ({
+    () => {
+      const downIdx = gridDownNeighborIndex(index, total, FILTER_COLS)
+      return {
+      /* 与详情页卡片区一致：网格顶行再上键不离开网格（用左键回筛选侧栏） */
       up:
         row === 0
-          ? 'filter-sb-0'
+          ? undefined
           : `filter-grid-${index - FILTER_COLS}`,
       down:
-        noCellBelow && onLastRow
-          ? 'filter-pg-prev'
-          : index + FILTER_COLS < total
-            ? `filter-grid-${index + FILTER_COLS}`
+        downIdx !== undefined
+          ? `filter-grid-${downIdx}`
+          : onLastRow
+            ? footerDownId
             : undefined,
       left: col === 0 ? 'filter-sb-0' : `filter-grid-${index - 1}`,
       right:
         col < FILTER_COLS - 1 && index + 1 < total
           ? `filter-grid-${index + 1}`
           : undefined,
-    }),
-    [index, total]
+      }
+    },
+    [index, total, footerDownId, onLastRow, row, col]
   )
 
   return (
-    <div
-      {...spatial}
-      className="poster-focus tv-focusable rounded-lg outline-none"
-      onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          navigate(`/detail/${movie.id}`)
-        }
-      }}
-    >
-      <PosterCard movie={movie} size="lg" focusable={false} className="w-full" />
+    <div className="scroll-my-10 rounded-lg outline-none [&_h3]:text-base [&_p]:text-[13px]">
+      <PosterCard
+        movie={movie}
+        size="lg"
+        focusable={false}
+        posterShellProps={{ ...spatial }}
+        className="w-full"
+      />
     </div>
   )
 }
@@ -238,10 +282,20 @@ function FilterPgNum({
     `filter-pg-${page}`,
     () => ({
       up: `filter-grid-${lastRowStart}`,
-      left: page === 1 ? 'filter-pg-prev' : `filter-pg-${page - 1}`,
-      right: page === totalPages ? 'filter-pg-next' : `filter-pg-${page + 1}`,
+      left:
+        page === 1
+          ? currentPage > 1
+            ? 'filter-pg-prev'
+            : undefined
+          : `filter-pg-${page - 1}`,
+      right:
+        page === totalPages
+          ? currentPage < totalPages
+            ? 'filter-pg-next'
+            : undefined
+          : `filter-pg-${page + 1}`,
     }),
-    [page, totalPages, lastRowStart]
+    [page, totalPages, lastRowStart, currentPage]
   )
 
   return (
@@ -295,9 +349,13 @@ function FilterPgNext({
 }
 
 export function FilterPage() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const categoryParam = searchParams.get('category') || ''
+
+  const filterNavLeftId =
+    categoryParam && FILTER_CATEGORY_TO_NAV_INDEX[categoryParam] != null
+      ? `nav-${FILTER_CATEGORY_TO_NAV_INDEX[categoryParam]}`
+      : 'nav-1'
 
   const initialType = categoryToTypeMap[categoryParam] || '全部'
 
@@ -315,6 +373,10 @@ export function FilterPage() {
 
   const total = movieList.length
   const lastRowStart = Math.floor((total - 1) / FILTER_COLS) * FILTER_COLS
+
+  /** 禁用按钮无法聚焦：第 1 页时「上一页」不可用，网格下移须落到页码 1 */
+  const gridFooterDownId =
+    currentPage > 1 ? 'filter-pg-prev' : 'filter-pg-1'
 
   const mainEntry =
     activeFilter != null ? `filter-opt-${activeFilter}-0` : 'filter-sb-0'
@@ -342,12 +404,37 @@ export function FilterPage() {
   const activeFilterKeyIndex =
     activeFilter != null ? FILTER_KEYS.indexOf(activeFilter) : -1
 
+  useEffect(() => {
+    if (!activeFilter) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setActiveFilter(null)
+        return
+      }
+      if (e.key === 'Backspace') {
+        const t = e.target as HTMLElement
+        if (
+          t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.isContentEditable
+        ) {
+          return
+        }
+        e.preventDefault()
+        setActiveFilter(null)
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [activeFilter])
+
   return (
     <div className="h-full w-full flex bg-background overflow-hidden">
-      <aside className="w-[260px] h-full bg-card border-r border-border flex flex-col p-6 flex-shrink-0">
-        <h2 className="text-xl font-bold text-foreground mb-8 px-1">筛选条件</h2>
+      <aside className="flex h-full w-[212px] shrink-0 flex-col border-r border-border bg-card px-4 py-5">
+        <h2 className="mb-6 px-0.5 text-lg font-bold text-foreground">筛选条件</h2>
 
-        <nav className="flex-1 space-y-3 overflow-y-auto thin-scrollbar pr-1">
+        <nav className="flex-1 space-y-2 overflow-y-auto thin-scrollbar px-0.5 py-2 pr-1">
           {FILTER_KEYS.map((fk, index) => (
             <FilterSidebarRow
               key={fk}
@@ -357,11 +444,12 @@ export function FilterPage() {
               filters={filters}
               filterLabels={filterLabels}
               toggleFilter={toggleFilter}
+              navLeftId={filterNavLeftId}
             />
           ))}
         </nav>
 
-        <div className="mt-6 pt-6 border-t border-border">
+        <div className="mt-4 border-t border-border pt-4">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Info size={14} />
             <span className="text-xs">按 [返回] 键退出</span>
@@ -370,67 +458,79 @@ export function FilterPage() {
       </aside>
 
       {activeFilter && (
-        <div className="absolute left-[260px] top-0 bottom-0 w-[400px] bg-card/95 backdrop-blur-md border-r border-border z-40 p-6 animate-fade-in">
-          <h3 className="text-lg font-bold text-foreground mb-4">
-            {filterData[activeFilter].title}
-          </h3>
-          <div className="grid grid-cols-3 gap-2">
-            {filterData[activeFilter].options.map((opt, optIndex) => (
-              <FilterOverlayOption
-                key={opt}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm animate-fade-in"
+          role="presentation"
+          onClick={() => setActiveFilter(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-modal-title"
+            className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-[var(--shadow-elevated)]"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <h3
+                id="filter-modal-title"
+                className="min-w-0 flex-1 text-lg font-bold leading-snug text-foreground"
+              >
+                {filterData[activeFilter].title}
+              </h3>
+              <FilterModalClose
                 activeFilter={activeFilter}
                 filterKeyIndex={activeFilterKeyIndex}
-                opt={opt}
-                optIndex={optIndex}
-                optionsLen={filterData[activeFilter].options.length}
-                filters={filters}
-                selectFilter={selectFilter}
+                onClose={() => setActiveFilter(null)}
               />
-            ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {filterData[activeFilter].options.map((opt, optIndex) => (
+                <FilterOverlayOption
+                  key={opt}
+                  activeFilter={activeFilter}
+                  filterKeyIndex={activeFilterKeyIndex}
+                  opt={opt}
+                  optIndex={optIndex}
+                  optionsLen={filterData[activeFilter].options.length}
+                  filters={filters}
+                  selectFilter={selectFilter}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      <main className="flex-1 h-full overflow-y-auto p-8">
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground mb-1">
-              {categoryParam ? `${categoryParam}筛选` : '影片发现'}
-            </h2>
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <span>
-                {filters.type} · {filters.year} · {filters.area}
-              </span>
-              <span>/</span>
-              <span>找到 2,480 部影片</span>
-            </div>
-          </div>
-          <div className="relative" data-spatial-arrow-through>
-            <Search
-              size={18}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              className="bg-secondary border-none rounded-xl py-3 pl-12 pr-6 w-72 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all"
-              placeholder="搜索电影、导演、演员..."
-              type="text"
-            />
+      <main
+        id="filter-page-main-scroll"
+        className="flex-1 min-h-0 h-full overflow-y-auto overflow-x-hidden px-7 pt-8 pb-36 scroll-pt-24 scroll-pb-24"
+      >
+        <header className="mb-6">
+          <h2 className="text-2xl font-bold text-foreground mb-1">
+            {categoryParam ? `${categoryParam}筛选` : '影片发现'}
+          </h2>
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <span>
+              {filters.type} · {filters.year} · {filters.area}
+            </span>
+            <span>/</span>
+            <span>找到 2,480 部影片</span>
           </div>
         </header>
 
-        <div className="grid grid-cols-5 gap-5 mb-8">
+        <div className="mb-8 grid grid-cols-5 gap-6">
           {movieList.map((movie, index) => (
             <FilterGridCell
               key={movie.id}
               index={index}
               movie={movie}
               total={total}
-              navigate={navigate}
+              footerDownId={gridFooterDownId}
             />
           ))}
         </div>
 
-        <div className="flex flex-col items-center gap-4 pb-8">
+        <div className="flex flex-col items-center gap-4 pb-16">
           <div className="flex items-center gap-3">
             <FilterPgPrev
               lastRowStart={lastRowStart}

@@ -219,12 +219,10 @@ function DetailRelatedCard({
   index,
   movie,
   relatedLen,
-  navigate,
 }: {
   index: number
   movie: Movie
   relatedLen: number
-  navigate: (path: string) => void
 }) {
   const spatial = useTvSpatialNode(
     `detail-rel-${index}`,
@@ -237,19 +235,13 @@ function DetailRelatedCard({
   )
 
   return (
-    <div
-      {...spatial}
-      className="poster-focus tv-focusable flex-shrink-0 rounded-lg outline-none"
-      onClick={() => navigate(`/detail/${movie.id}`)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          navigate(`/detail/${movie.id}`)
-        }
-      }}
-    >
-      <PosterCard movie={movie} size="xs" focusable={false} />
-    </div>
+    <PosterCard
+      movie={movie}
+      size="xs"
+      focusable={false}
+      posterShellProps={{ ...spatial }}
+      className="flex-shrink-0"
+    />
   )
 }
 
@@ -387,7 +379,7 @@ export function DetailPage() {
             <button
               type="button"
               {...spatialPlay}
-              className="tv-focusable absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full bg-primary/90 backdrop-blur-sm flex items-center justify-center transition-[transform,box-shadow] duration-150 ease-out hover:scale-110 focus-visible:scale-110 focus-visible:shadow-[var(--shadow-glow)]"
+              className="tv-focusable absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full bg-primary/90 backdrop-blur-sm flex items-center justify-center transition-[transform,box-shadow] duration-150 ease-out hover:scale-110 focus-visible:scale-110"
               onClick={() => navigate(`/player/${movie.id}`)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') navigate(`/player/${movie.id}`)
@@ -412,7 +404,6 @@ export function DetailPage() {
                   index={i}
                   movie={m}
                   relatedLen={relatedMovies.length}
-                  navigate={navigate}
                 />
               ))}
             </div>
