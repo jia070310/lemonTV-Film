@@ -1,6 +1,6 @@
 /**
- * Detail route: TV WebViews often ignore scrollIntoView for nested layouts.
- * We align `#tv-main-content` by delta math and reset the episode strip scroll.
+ * Detail page: episode strip may scroll locally; main column uses `#tv-main-content`.
+ * When focus is on the top row (播放/返回/立即播放/收藏), reset episode strip scroll.
  */
 
 function resetDetailEpisodeInnerScroll(): void {
@@ -8,66 +8,58 @@ function resetDetailEpisodeInnerScroll(): void {
   if (ep) ep.scrollTop = 0
 }
 
-/** Scroll `main` so `el`’s top aligns near the top of the main viewport (if main can scroll). */
-function scrollMainToAlignElementTop(
-  main: HTMLElement,
-  el: HTMLElement,
+function scrollVerticalOverflowParentToReveal(
+  scrollRoot: HTMLElement,
+  child: HTMLElement,
   margin = 8
 ): void {
-  const mainRect = main.getBoundingClientRect()
-  const elRect = el.getBoundingClientRect()
-  const delta = elRect.top - mainRect.top - margin
-  if (Math.abs(delta) < 2) return
-  const nextTop = Math.max(0, main.scrollTop + delta)
-  main.scrollTo({ top: nextTop, behavior: 'instant' })
+  if (!scrollRoot.contains(child)) return
+  const rootRect = scrollRoot.getBoundingClientRect()
+  const elRect = child.getBoundingClientRect()
+  if (elRect.top < rootRect.top + margin) {
+    scrollRoot.scrollTop -= rootRect.top + margin - elRect.top
+  } else if (elRect.bottom > rootRect.bottom - margin) {
+    scrollRoot.scrollTop += elRect.bottom - (rootRect.bottom - margin)
+  }
 }
 
-function alignDetailInMain(el: HTMLElement | null): void {
+/** Inner → outer; run twice in one frame so rects settle after nested adjustments. */
+export function revealDetailSpatialFocus(focusedEl: HTMLElement): void {
+  const epScroll = document.getElementById('detail-ep-scroll')
   const main = document.getElementById('tv-main-content')
-  if (!main || !el) return
-  scrollMainToAlignElementTop(main, el)
+
+  const run = (): void => {
+    if (epScroll?.contains(focusedEl)) {
+      scrollVerticalOverflowParentToReveal(epScroll, focusedEl)
+    }
+    if (main?.contains(focusedEl)) {
+      scrollVerticalOverflowParentToReveal(main, focusedEl)
+    }
+  }
+
+  run()
+  run()
 }
 
 /**
- * After spatial ArrowUp on the detail route, align main + episode strip.
- *
- * @returns true when detail-page handled scrolling (skip generic fallback).
+ * @returns true when on detail route (caller skips generic scrollIntoView).
  */
-export function applyDetailSpatialScrollUp(
+export function applyDetailSpatialScrollAfterFocus(
   nextId: string,
   focusedEl: HTMLElement
 ): boolean {
   if (!document.getElementById('detail-page-anchor')) return false
 
-  const pageAnchor = document.getElementById('detail-page-anchor')
-  const rightAnchor = document.getElementById('detail-right-anchor')
-  const sourcesAnchor = document.getElementById('detail-sources-anchor')
-  const episodesAnchor = document.getElementById('detail-episodes-anchor')
+  const snapEpisodeStrip =
+    nextId === 'detail-playbtn' ||
+    nextId === 'detail-fav' ||
+    nextId === 'detail-play' ||
+    nextId === 'detail-back'
 
-  if (nextId === 'detail-play' || nextId === 'detail-back') {
+  if (snapEpisodeStrip) {
     resetDetailEpisodeInnerScroll()
-    if (pageAnchor) alignDetailInMain(pageAnchor)
-    return true
   }
 
-  if (nextId === 'detail-playbtn' || nextId === 'detail-fav') {
-    resetDetailEpisodeInnerScroll()
-    if (rightAnchor) alignDetailInMain(rightAnchor)
-    return true
-  }
-
-  if (nextId.startsWith('detail-src-')) {
-    resetDetailEpisodeInnerScroll()
-    if (sourcesAnchor) alignDetailInMain(sourcesAnchor)
-    return true
-  }
-
-  if (nextId.startsWith('detail-ep-')) {
-    if (episodesAnchor) alignDetailInMain(episodesAnchor)
-    focusedEl.scrollIntoView({ block: 'nearest', behavior: 'instant', inline: 'nearest' })
-    return true
-  }
-
-  focusedEl.scrollIntoView({ block: 'nearest', behavior: 'instant', inline: 'nearest' })
+  revealDetailSpatialFocus(focusedEl)
   return true
 }

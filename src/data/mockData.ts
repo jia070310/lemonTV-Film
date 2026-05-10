@@ -9,6 +9,8 @@ export interface Movie {
   area: string
   description?: string
   episodes?: number
+  /** 已播出集数；小于 `episodes` 时详情页显示「更新至 X 集」，否则「全集 X 集」 */
+  airedEpisodes?: number
   tag?: string
 }
 
@@ -24,6 +26,7 @@ export const heroMovies: Movie[] = [
     area: '美国',
     description: '在一个被永恒黑暗笼罩的世界中，一位神秘的新娘踏上了寻找光明之源的征途。她将面对无数黑暗势力的阻挠，揭开这个世界最深处的秘密。',
     episodes: 12,
+    airedEpisodes: 8,
     tag: '热门',
   },
   {

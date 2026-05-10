@@ -6,7 +6,7 @@ import {
   useMemo,
   useRef,
 } from 'react'
-import { applyDetailSpatialScrollUp } from '@/lib/scrollDetailPane'
+import { applyDetailSpatialScrollAfterFocus } from '@/lib/scrollDetailPane'
 
 export type SpatialDir = 'up' | 'down' | 'left' | 'right'
 
@@ -99,7 +99,11 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
               ? 'left'
               : 'right'
       const nextId = neighbors[dir]
-      if (!nextId || !/^[a-zA-Z0-9_-]+$/.test(nextId)) return
+      if (!nextId || !/^[a-zA-Z0-9_-]+$/.test(nextId)) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
 
       const next = document.querySelector(
         `[data-spatial-id="${nextId}"]`
@@ -111,22 +115,14 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
       next.focus({ preventScroll: true })
 
       const scrollAfter = (): void => {
-        if (dir === 'up') {
-          const detailHandled = applyDetailSpatialScrollUp(nextId, next)
-          if (!detailHandled) {
-            next.scrollIntoView({
-              block: 'nearest',
-              behavior: 'instant',
-              inline: 'nearest',
-            })
-          }
-          return
+        const detailHandled = applyDetailSpatialScrollAfterFocus(nextId, next)
+        if (!detailHandled) {
+          next.scrollIntoView({
+            block: 'nearest',
+            behavior: 'instant',
+            inline: 'nearest',
+          })
         }
-        next.scrollIntoView({
-          block: 'nearest',
-          behavior: 'instant',
-          inline: 'nearest',
-        })
       }
 
       requestAnimationFrame(() => {

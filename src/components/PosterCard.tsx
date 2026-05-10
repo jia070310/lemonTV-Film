@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 
 interface PosterCardProps {
   movie: Movie
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'xs' | 'sm' | 'md' | 'lg'
   showInfo?: boolean
   /** When false, parent handles focus ring (avoids nested focusables). Default true. */
   focusable?: boolean
@@ -15,6 +15,7 @@ export function PosterCard({ movie, size = 'md', showInfo = true, focusable = tr
   const navigate = useNavigate()
 
   const sizeClasses = {
+    xs: 'w-[112px]',
     sm: 'w-[140px]',
     md: 'w-[180px]',
     lg: 'w-[200px]',
@@ -56,9 +57,21 @@ export function PosterCard({ movie, size = 'md', showInfo = true, focusable = tr
         <div className="absolute inset-x-0 bottom-0 h-1/3 gradient-card" />
       </div>
       {showInfo && (
-        <div className="mt-2 px-0.5">
-          <h3 className="text-sm font-medium text-foreground truncate">{movie.title}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
+        <div className={cn('mt-1.5 px-0.5', size === 'xs' && 'mt-1')}>
+          <h3
+            className={cn(
+              'font-medium text-foreground truncate',
+              size === 'xs' ? 'text-xs' : 'text-sm'
+            )}
+          >
+            {movie.title}
+          </h3>
+          <p
+            className={cn(
+              'text-muted-foreground mt-0.5',
+              size === 'xs' ? 'text-[10px] leading-tight' : 'text-xs'
+            )}
+          >
             {movie.year} · {movie.genre}
           </p>
         </div>
