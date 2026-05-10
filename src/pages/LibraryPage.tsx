@@ -1,15 +1,124 @@
 import { useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
 import { movieList } from '@/data/mockData'
+import type { Movie } from '@/data/mockData'
 import { Heart, Clock, FileX } from 'lucide-react'
 
 type TabType = 'favorite' | 'history'
 
+const GRID_COLS = 6
+
 const favoriteMovies = movieList.slice(0, 8)
 const historyMovies = movieList.slice(5, 14)
 
+function LibraryTabBtn({
+  which,
+  active,
+  onSelect,
+  icon,
+  label,
+}: {
+  which: 0 | 1
+  active: boolean
+  onSelect: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  const spatial = useTvSpatialNode(
+    `library-tab-${which}`,
+    () => ({
+      left: which === 1 ? 'library-tab-0' : undefined,
+      right: which === 0 ? 'library-tab-1' : undefined,
+      down: 'library-grid-0',
+    }),
+    [which]
+  )
+
+  return (
+    <button
+      type="button"
+      {...spatial}
+      className={cn(
+        'tv-focusable tab-focus flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-[box-shadow,transform,colors] duration-150 ease-out',
+        active
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
+      )}
+      onClick={onSelect}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function LibraryGridCell({
+  index,
+  movie,
+  total,
+  tabUpId,
+  navigate,
+  showProgress,
+}: {
+  index: number
+  movie: Movie
+  total: number
+  tabUpId: string
+  navigate: (path: string) => void
+  showProgress: boolean
+}) {
+  const row = Math.floor(index / GRID_COLS)
+  const col = index % GRID_COLS
+
+  const spatial = useTvSpatialNode(
+    `library-grid-${index}`,
+    () => ({
+      up: row === 0 ? tabUpId : `library-grid-${index - GRID_COLS}`,
+      down:
+        index + GRID_COLS < total
+          ? `library-grid-${index + GRID_COLS}`
+          : undefined,
+      left: col === 0 ? 'nav-0' : `library-grid-${index - 1}`,
+      right:
+        col < GRID_COLS - 1 && index + 1 < total
+          ? `library-grid-${index + 1}`
+          : undefined,
+    }),
+    [index, total, tabUpId]
+  )
+
+  return (
+    <div className="relative">
+      <div
+        {...spatial}
+        className="poster-focus tv-focusable rounded-lg outline-none"
+        onClick={() => navigate(`/detail/${movie.id}`)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            navigate(`/detail/${movie.id}`)
+          }
+        }}
+      >
+        <PosterCard movie={movie} size="lg" focusable={false} className="w-full" />
+      </div>
+      {showProgress && (
+        <div className="absolute bottom-0 left-0 right-0 mx-0.5 h-1 bg-muted rounded-full overflow-hidden pointer-events-none">
+          <div
+            className="h-full bg-primary rounded-full"
+            style={{ width: `${Math.max(15, Math.min(95, 30 + index * 8))}%` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function LibraryPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('tab') as TabType) || 'favorite'
 
@@ -19,38 +128,28 @@ export function LibraryPage() {
 
   const isFavorite = tab === 'favorite'
   const items = isFavorite ? favoriteMovies : historyMovies
+  const tabUpId = isFavorite ? 'library-tab-0' : 'library-tab-1'
+
+  useTvSpatialMainEntry('library-tab-0')
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden p-8">
-      {/* Header with Tabs */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
-          <button
-            className={cn(
-              'tv-focusable tab-focus flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all',
-              isFavorite
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
-            )}
-            tabIndex={0}
-            onClick={() => setTab('favorite')}
-          >
-            <Heart size={18} />
-            我的收藏
-          </button>
-          <button
-            className={cn(
-              'tv-focusable tab-focus flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all',
-              !isFavorite
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
-            )}
-            tabIndex={0}
-            onClick={() => setTab('history')}
-          >
-            <Clock size={18} />
-            观看历史
-          </button>
+          <LibraryTabBtn
+            which={0}
+            active={isFavorite}
+            onSelect={() => setTab('favorite')}
+            icon={<Heart size={18} />}
+            label="我的收藏"
+          />
+          <LibraryTabBtn
+            which={1}
+            active={!isFavorite}
+            onSelect={() => setTab('history')}
+            icon={<Clock size={18} />}
+            label="观看历史"
+          />
         </div>
 
         <span className="text-sm text-muted-foreground">
@@ -58,22 +157,19 @@ export function LibraryPage() {
         </span>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto thin-scrollbar">
         {items.length > 0 ? (
           <div className="grid grid-cols-6 gap-4 pb-8">
             {items.map((movie, i) => (
-              <div key={`${movie.id}-${i}`} className="relative">
-                <PosterCard movie={movie} size="lg" className="w-full" />
-                {!isFavorite && (
-                  <div className="absolute bottom-0 left-0 right-0 mx-0.5 h-1 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full"
-                      style={{ width: `${Math.max(15, Math.min(95, 30 + i * 8))}%` }}
-                    />
-                  </div>
-                )}
-              </div>
+              <LibraryGridCell
+                key={`${movie.id}-${i}`}
+                index={i}
+                movie={movie}
+                total={items.length}
+                tabUpId={tabUpId}
+                navigate={navigate}
+                showProgress={!isFavorite}
+              />
             ))}
           </div>
         ) : (

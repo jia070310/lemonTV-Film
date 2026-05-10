@@ -6,10 +6,12 @@ interface PosterCardProps {
   movie: Movie
   size?: 'sm' | 'md' | 'lg'
   showInfo?: boolean
+  /** When false, parent handles focus ring (avoids nested focusables). Default true. */
+  focusable?: boolean
   className?: string
 }
 
-export function PosterCard({ movie, size = 'md', showInfo = true, className }: PosterCardProps) {
+export function PosterCard({ movie, size = 'md', showInfo = true, focusable = true, className }: PosterCardProps) {
   const navigate = useNavigate()
 
   const sizeClasses = {
@@ -21,11 +23,12 @@ export function PosterCard({ movie, size = 'md', showInfo = true, className }: P
   return (
     <div
       className={cn(
-        'poster-focus tv-focusable flex-shrink-0 cursor-pointer group',
+        focusable && 'poster-focus tv-focusable',
+        'flex-shrink-0 cursor-pointer group',
         sizeClasses[size],
         className
       )}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : -1}
       onClick={() => navigate(`/detail/${movie.id}`)}
       onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/detail/${movie.id}`) }}
     >

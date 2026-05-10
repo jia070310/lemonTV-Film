@@ -62,15 +62,17 @@
     overflow: hidden;
   }
 
-  /* TV Focus Ring System */
+  /* TV Focus Ring — avoid transition-all (animates every property = janky remote navigation) */
   .tv-focusable {
-    @apply outline-none transition-all duration-300;
-    transition-timing-function: cubic-bezier(0.25, 0.8, 0.25, 1);
+    outline: none;
+    transition-property: box-shadow, transform, background-color, color, border-color;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
   }
 
   .tv-focusable:focus-visible {
     box-shadow: var(--shadow-focus);
-    transform: scale(1.05);
+    transform: scale(1.03);
     z-index: 20;
   }
 
@@ -79,28 +81,60 @@
     color: hsl(var(--primary-foreground));
   }
 
-  /* Poster card focus */
+  /* Selected pill/tab (keyboard “checked” state, not focus ring) */
+  .tv-tab-selected {
+    background-color: hsl(0 0% 22%);
+    color: hsl(0 0% 98%);
+  }
+
+  /*
+   * Poster / hero focus: ring follows border-radius (outline is rectangular on some UIs).
+   * Single rounded stroke + glow, no outline.
+   */
+  .poster-focus {
+    transition-property: box-shadow, transform;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+  }
+
   .poster-focus:focus-visible {
-    outline: 3px solid hsl(var(--lemon));
-    outline-offset: 3px;
-    transform: scale(1.08);
+    outline: none;
+    transform: scale(1.03);
     z-index: 20;
-    box-shadow: var(--shadow-glow);
+    box-shadow:
+      0 0 0 3px hsl(var(--lemon)),
+      0 0 24px hsl(52 97% 52% / 0.35);
   }
 
-  /* Pill button focus */
+  /* Poster also uses .tv-focusable: prefer card-shaped ring over generic focus shadow */
+  .poster-focus.tv-focusable:focus-visible {
+    box-shadow:
+      0 0 0 3px hsl(var(--lemon)),
+      0 0 24px hsl(52 97% 52% / 0.35);
+    transform: scale(1.03);
+  }
+
+  /* Top hero strip: width handles “zoom”; drop scale so focus ring isn’t clipped & neighbors don’t mis-align */
+  #hero-carousel-scroll .hero-carousel-item.poster-focus:focus-visible {
+    transform: none;
+    box-shadow:
+      0 0 0 3px hsl(var(--lemon)),
+      0 0 24px hsl(52 97% 52% / 0.35);
+  }
+
+  /* Pill button focus — yellow background, black text */
   .pill-focus:focus-visible {
-    background-color: hsl(var(--lemon));
-    color: hsl(var(--primary-foreground));
+    background-color: hsl(var(--lemon)) !important;
+    color: hsl(var(--primary-foreground)) !important;
     box-shadow: var(--shadow-glow);
-    transform: scale(1.05);
+    transform: scale(1.02);
   }
 
-  /* Tab focus */
+  /* Tab / chip focus — yellow background, black text */
   .tab-focus:focus-visible {
-    background-color: hsl(var(--lemon));
-    color: hsl(var(--primary-foreground));
-    transform: scale(1.05);
+    background-color: hsl(var(--lemon)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+    transform: scale(1.02);
   }
 
   /* Hide scrollbar */
@@ -128,14 +162,25 @@
     background: var(--gradient-hero);
   }
 
-  /* TV card elevation */
+  /* TV card elevation — only animate shadow/transform */
   .tv-card {
-    @apply rounded-lg overflow-hidden transition-all duration-300;
+    @apply rounded-lg overflow-hidden;
+    transition-property: box-shadow, transform;
+    transition-duration: 160ms;
+    transition-timing-function: ease-out;
     box-shadow: var(--shadow-card);
   }
   .tv-card:hover, .tv-card:focus-within {
     box-shadow: var(--shadow-elevated);
-    transform: translateY(-4px);
+    transform: translateY(-3px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tv-focusable,
+    .poster-focus,
+    .tv-card {
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 

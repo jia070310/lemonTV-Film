@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { TvSpatialProvider } from './tv/spatial'
 import { Layout } from './components/Layout'
 import { HomePage } from './pages/HomePage'
 import { DetailPage } from './pages/DetailPage'
@@ -12,6 +13,7 @@ import { NotFoundPage } from './pages/NotFoundPage'
 function App() {
   return (
     <BrowserRouter>
+      <TvSpatialProvider>
       <div className="h-screen w-screen overflow-hidden bg-background text-foreground">
         <Routes>
           {/* Player page uses full-screen layout */}
@@ -28,6 +30,7 @@ function App() {
           </Route>
         </Routes>
       </div>
+      </TvSpatialProvider>
     </BrowserRouter>
   )
 }

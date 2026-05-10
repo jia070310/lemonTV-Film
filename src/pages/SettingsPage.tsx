@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import {
   Play,
   Monitor,
@@ -11,18 +12,22 @@ import {
 interface SwitchProps {
   checked: boolean
   onChange: (v: boolean) => void
+  spatialProps?: { 'data-spatial-id': string; tabIndex: 0 }
 }
 
-function TvSwitch({ checked, onChange }: SwitchProps) {
+function TvSwitch({ checked, onChange, spatialProps }: SwitchProps) {
   return (
     <button
+      type="button"
+      {...spatialProps}
       className={cn(
         'tv-focusable relative w-12 h-7 rounded-full transition-all duration-300 outline-none',
         checked ? 'bg-primary' : 'bg-muted'
       )}
-      tabIndex={0}
       onClick={() => onChange(!checked)}
-      onKeyDown={(e) => { if (e.key === 'Enter') onChange(!checked) }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onChange(!checked)
+      }}
     >
       <div
         className={cn(
@@ -89,6 +94,18 @@ function SettingItem({ icon, title, description, children }: SettingItemProps) {
 }
 
 export function SettingsPage() {
+  useTvSpatialMainEntry('settings-auto-skip')
+  const spatialSkip = useTvSpatialNode(
+    'settings-auto-skip',
+    () => ({ down: 'settings-auto-next' }),
+    []
+  )
+  const spatialNext = useTvSpatialNode(
+    'settings-auto-next',
+    () => ({ up: 'settings-auto-skip' }),
+    []
+  )
+
   const [autoSkip, setAutoSkip] = useState(true)
   const [autoPlayNext, setAutoPlayNext] = useState(true)
   const [defaultSpeed, setDefaultSpeed] = useState('1.0x')
@@ -116,14 +133,22 @@ export function SettingsPage() {
             title="自动跳过片头片尾"
             description="播放时自动跳过片头片尾"
           >
-            <TvSwitch checked={autoSkip} onChange={setAutoSkip} />
+            <TvSwitch
+              checked={autoSkip}
+              onChange={setAutoSkip}
+              spatialProps={spatialSkip}
+            />
           </SettingItem>
           <SettingItem
             icon={<Monitor size={18} />}
             title="自动播放下一集"
             description="当前集播放结束后自动继续"
           >
-            <TvSwitch checked={autoPlayNext} onChange={setAutoPlayNext} />
+            <TvSwitch
+              checked={autoPlayNext}
+              onChange={setAutoPlayNext}
+              spatialProps={spatialNext}
+            />
           </SettingItem>
           <SettingItem
             icon={<Monitor size={18} />}
