@@ -7,6 +7,8 @@ interface PosterCardProps {
   movie: Movie
   size?: 'xs' | 'sm' | 'md' | 'lg'
   showInfo?: boolean
+  /** 首页等首屏列表用 eager，避免路由返回后 lazy 推迟解码 */
+  posterPriority?: boolean
   /** When false, parent can pass posterShellProps to put spatial focus on the cover only */
   focusable?: boolean
   /** Spread onto the poster (cover) node — use with focusable={false} for TV spatial */
@@ -18,6 +20,7 @@ export function PosterCard({
   movie,
   size = 'md',
   showInfo = true,
+  posterPriority = false,
   focusable = true,
   posterShellProps,
   className,
@@ -69,28 +72,45 @@ export function PosterCard({
           }
         }}
       >
-        <img
-          src={movie.poster}
-          alt={movie.title}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-          loading="lazy"
-        />
-        <div className="absolute right-2 top-2 rounded border border-primary/30 bg-background/70 px-1.5 py-0.5 text-xs font-bold text-primary backdrop-blur-sm">
-          {movie.rating}
-        </div>
+        {movie.poster ? (
+          <img
+            key={`${movie.id}-${movie.poster}`}
+            src={movie.poster}
+            alt={movie.title}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110 bg-muted"
+            loading={posterPriority ? 'eager' : 'lazy'}
+            referrerPolicy="no-referrer"
+            decoding="async"
+            onError={(e) => {
+              const el = e.currentTarget
+              el.onerror = null
+              el.removeAttribute('src')
+            }}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-muted px-2 text-center text-[11px] text-muted-foreground">
+            无封面
+          </div>
+        )}
+        {movie.rating > 0 && (
+          <div className="absolute right-2 top-2 z-[2] rounded border border-primary/30 bg-background/85 px-1.5 py-0.5 text-xs font-bold text-primary backdrop-blur-sm">
+            {movie.rating}
+          </div>
+        )}
         {movie.tag && (
           <div
             className={cn(
-              'absolute left-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-bold',
+              'absolute left-2 bottom-11 z-[2] max-w-[calc(100%-0.75rem)] truncate rounded px-1.5 py-0.5 text-[10px] font-bold shadow-sm',
               movie.tag === '热门'
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-blue-600 text-foreground'
+                : 'bg-blue-600/95 text-primary-foreground'
             )}
+            title={movie.tag}
           >
             {movie.tag}
           </div>
         )}
-        <div className="gradient-card absolute inset-x-0 bottom-0 h-1/3" />
+        <div className="gradient-card pointer-events-none absolute inset-x-0 bottom-0 z-[1] h-2/5" />
       </div>
       {showInfo && (
         <div className={cn('mt-1.5 px-0.5', size === 'xs' && 'mt-1')}>

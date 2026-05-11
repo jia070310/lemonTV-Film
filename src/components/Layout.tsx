@@ -1,5 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { useVersionUpdateOptional } from '@/context/VersionUpdateContext'
 import { useTvSpatialContext, useTvSpatialNode } from '@/tv/spatial'
 import { Logo } from '@/components/Logo'
 import {
@@ -38,11 +39,13 @@ function SidebarNavButton({
   item,
   active,
   navigate,
+  showUpdateDot,
 }: {
   index: number
   item: NavItem
   active: boolean
   navigate: (path: string) => void
+  showUpdateDot?: boolean
 }) {
   const { getMainSpatialEntry } = useTvSpatialContext()
   const spatial = useTvSpatialNode(
@@ -61,7 +64,7 @@ function SidebarNavButton({
       type="button"
       {...spatial}
       className={cn(
-        'tv-focusable w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left outline-none transition-[box-shadow,transform,colors] duration-150 ease-out',
+        'relative tv-focusable w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left outline-none transition-[box-shadow,transform,colors] duration-150 ease-out',
         active
           ? 'tv-tab-selected'
           : 'text-secondary-foreground hover:bg-surface-hover'
@@ -77,6 +80,12 @@ function SidebarNavButton({
         {item.icon}
       </span>
       <span className="text-sm font-medium">{item.label}</span>
+      {showUpdateDot && (
+        <span
+          className="absolute right-3 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card"
+          aria-hidden
+        />
+      )}
       {active && (
         <div className="ml-auto w-1.5 h-1.5 rounded-full bg-current opacity-90" />
       )}
@@ -87,6 +96,8 @@ function SidebarNavButton({
 export function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
+  const versionCtx = useVersionUpdateOptional()
+  const settingsUpdateDot = Boolean(versionCtx?.hasUpdate)
 
   const isActive = (item: NavItem) => {
     if (item.path === '/') return location.pathname === '/'
@@ -121,6 +132,7 @@ export function Layout() {
               item={item}
               active={isActive(item)}
               navigate={navigate}
+              showUpdateDot={item.path === '/settings' && settingsUpdateDot}
             />
           ))}
         </nav>
@@ -134,7 +146,7 @@ export function Layout() {
 
       <main
         id="tv-main-content"
-        className="flex-1 h-full overflow-y-auto no-scrollbar"
+        className="min-h-0 h-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden no-scrollbar"
       >
         <Outlet />
       </main>

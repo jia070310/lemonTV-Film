@@ -1,42 +1,25 @@
-import { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
+import { useState, useRef, useLayoutEffect, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { scrollHomeHeroIntoView } from '@/lib/scrollHomeHero'
+import { useVersionUpdate } from '@/context/VersionUpdateContext'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
-import { heroMovies, movieList, categories } from '@/data/mockData'
+import { categories } from '@/data/mockData'
 import type { Movie } from '@/data/mockData'
+import type { HomeNavCategory } from '@/data/maccmsTaxonomy'
+import { MACCMS_HERO_RECOMMEND_LEVEL, MACCMS_HOME_HERO_COUNT } from '@/config/maccms'
+import { fetchHomeHeroMovies, fetchHomeLatestForCategory } from '@/lib/maccmsApi'
+import {
+  readGridSessionCache,
+  readHeroSessionCache,
+  writeGridSessionCache,
+  writeHeroSessionCache,
+} from '@/lib/homeSessionCache'
 import { SlidersHorizontal } from 'lucide-react'
 
 const GRID_COLS = 6
-
-/** 首页分类与列表 genre/tag 的演示映射（无数据时回退全列表） */
-function moviesForHomeCategory(catIndex: number): Movie[] {
-  const cat = categories[catIndex]
-  let list: Movie[]
-  switch (cat) {
-    case '电视剧':
-      list = movieList.filter(m =>
-        ['爱情', '悬疑', '武侠', '历史', '战争'].includes(m.genre)
-      )
-      break
-    case '电影':
-      list = movieList.filter(m =>
-        ['科幻', '动作', '冒险', '奇幻', '竞速'].includes(m.genre)
-      )
-      break
-    case '综艺':
-      list = movieList.filter(m => Boolean(m.tag))
-      break
-    case '动漫':
-      list = movieList.filter(m => ['奇幻', '科幻'].includes(m.genre))
-      break
-    default:
-      list = [...movieList]
-  }
-  return list.length > 0 ? list : [...movieList]
-}
 
 function HomeHeroTile({
   i,
@@ -48,6 +31,7 @@ function HomeHeroTile({
   activeCategory,
   navigate,
   heroRef,
+  showUpdateBanner,
 }: {
   i: number
   movie: Movie
@@ -58,15 +42,17 @@ function HomeHeroTile({
   activeCategory: number
   navigate: (path: string) => void
   heroRef: (el: HTMLDivElement | null) => void
+  showUpdateBanner: boolean
 }) {
   const spatial = useTvSpatialNode(
     `home-hero-${i}`,
     () => ({
       left: i > 0 ? `home-hero-${i - 1}` : 'nav-0',
       right: i < heroCount - 1 ? `home-hero-${i + 1}` : undefined,
+      up: showUpdateBanner ? 'home-update-banner' : undefined,
       down: `home-cat-${activeCategory}`,
     }),
-    [i, heroCount, activeCategory]
+    [i, heroCount, activeCategory, showUpdateBanner]
   )
 
   return (
@@ -97,9 +83,19 @@ function HomeHeroTile({
           }}
         >
           <img
-            src={i === heroIndex ? (movie.backdrop || movie.poster) : movie.poster}
+            key={`${movie.id}-${i === heroIndex ? 'wide' : 'cover'}`}
+            src={
+              (i === heroIndex ? movie.backdrop || movie.poster : movie.poster) ||
+              '/images/movie-poster-1.png'
+            }
             alt={movie.title}
             className="h-full w-full rounded-xl object-cover"
+            onError={(e) => {
+              const el = e.currentTarget
+              if (!el.src.endsWith('/images/movie-poster-1.png')) {
+                el.src = '/images/movie-poster-1.png'
+              }
+            }}
           />
         </div>
       </div>
@@ -109,8 +105,12 @@ function HomeHeroTile({
           <p className="mb-3 line-clamp-2 max-w-[280px] text-sm text-muted-foreground">
             {movie.description}
           </p>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-primary">{movie.rating} 分</span>
+          <div className="flex flex-wrap items-center gap-3">
+            {movie.rating > 0 ? (
+              <span className="text-sm font-bold text-primary">{movie.rating} 分</span>
+            ) : (
+              <span className="text-xs text-muted-foreground">暂无评分</span>
+            )}
             <span className="text-xs text-muted-foreground">{movie.year}</span>
             <span className="text-xs text-muted-foreground">{movie.genre}</span>
             {movie.tag && (
@@ -130,6 +130,55 @@ function HomeHeroTile({
   )
 }
 
+function HomeUpdateBanner({
+  heroIndex,
+  remoteVersion,
+  currentVersion,
+  onOpen,
+}: {
+  heroIndex: number
+  remoteVersion: string
+  currentVersion: string
+  onOpen: () => void
+}) {
+  const spatial = useTvSpatialNode(
+    'home-update-banner',
+    () => ({
+      down: `home-hero-${heroIndex}`,
+    }),
+    [heroIndex]
+  )
+
+  return (
+    <section className="px-tv-2xl pt-tv-sm" aria-live="polite">
+      <button
+        type="button"
+        {...spatial}
+        className="tv-focusable flex max-w-2xl items-center gap-3 rounded-2xl bg-primary px-5 py-3 text-left shadow-md outline-none"
+        onClick={() => onOpen()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            onOpen()
+          }
+        }}
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/25">
+          <span className="text-lg font-black text-primary-foreground">!</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-primary-foreground">
+            仓库 v{remoteVersion} · 当前 v{currentVersion}
+          </p>
+          <p className="text-xs text-primary-foreground/85">
+            有更新 · 已全局提醒 · 按确定查看；约 10 秒后收起本横幅
+          </p>
+        </div>
+      </button>
+    </section>
+  )
+}
+
 function HomeCategoryTab({
   i,
   label,
@@ -137,6 +186,8 @@ function HomeCategoryTab({
   setActiveCategory,
   heroIndexRef,
   categoriesLen,
+  heroStripLen,
+  showUpdateBanner,
 }: {
   i: number
   label: string
@@ -144,16 +195,23 @@ function HomeCategoryTab({
   setActiveCategory: (n: number) => void
   heroIndexRef: React.MutableRefObject<number>
   categoriesLen: number
+  heroStripLen: number
+  showUpdateBanner: boolean
 }) {
   const spatial = useTvSpatialNode(
     `home-cat-${i}`,
     () => ({
       left: i > 0 ? `home-cat-${i - 1}` : undefined,
       right: i < categoriesLen - 1 ? `home-cat-${i + 1}` : 'home-cat-filter',
-      up: `home-hero-${heroIndexRef.current}`,
+      up:
+        heroStripLen > 0
+          ? `home-hero-${heroIndexRef.current}`
+          : showUpdateBanner
+            ? 'home-update-banner'
+            : undefined,
       down: 'home-grid-0',
     }),
-    [i, categoriesLen]
+    [i, categoriesLen, heroStripLen, showUpdateBanner]
   )
 
   return (
@@ -192,20 +250,29 @@ function HomeFilterTab({
   navigate,
   heroIndexRef,
   categoryLabel,
+  heroStripLen,
+  showUpdateBanner,
 }: {
   categoriesLen: number
   navigate: (path: string) => void
   heroIndexRef: React.MutableRefObject<number>
   categoryLabel: string
+  heroStripLen: number
+  showUpdateBanner: boolean
 }) {
   const spatial = useTvSpatialNode(
     'home-cat-filter',
     () => ({
       left: `home-cat-${categoriesLen - 1}`,
-      up: `home-hero-${heroIndexRef.current}`,
+      up:
+        heroStripLen > 0
+          ? `home-hero-${heroIndexRef.current}`
+          : showUpdateBanner
+            ? 'home-update-banner'
+            : undefined,
       down: 'home-grid-0',
     }),
-    [categoriesLen]
+    [categoriesLen, heroStripLen, showUpdateBanner]
   )
 
   return (
@@ -274,6 +341,7 @@ function HomeGridCell({
         movie={movie}
         size="lg"
         focusable={false}
+        posterPriority
         posterShellProps={{ ...spatial }}
         className="w-full"
       />
@@ -283,13 +351,92 @@ function HomeGridCell({
 
 export function HomePage() {
   const navigate = useNavigate()
+  const { showHomeBanner, remote, openUpdateDialog, currentVersionName } =
+    useVersionUpdate()
   const [activeCategory, setActiveCategory] = useState(0)
   const [heroIndex, setHeroIndex] = useState(0)
   const heroIndexRef = useRef(0)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const heroRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  useTvSpatialMainEntry('home-hero-0')
+  const [heroMovies, setHeroMovies] = useState<Movie[]>(
+    () => readHeroSessionCache() ?? []
+  )
+  const [heroReady, setHeroReady] = useState(() => readHeroSessionCache() !== null)
+  const [gridMovies, setGridMovies] = useState<Movie[]>(
+    () => readGridSessionCache(0) ?? []
+  )
+  const [heroError, setHeroError] = useState<string | null>(null)
+  const [gridError, setGridError] = useState<string | null>(null)
+  const [gridLoading, setGridLoading] = useState(
+    () => readGridSessionCache(0) === null
+  )
+
+  useTvSpatialMainEntry(heroMovies.length > 0 ? 'home-hero-0' : 'home-cat-0')
+
+  useEffect(() => {
+    let cancelled = false
+    const hadHeroCache = readHeroSessionCache() !== null
+    if (!hadHeroCache) {
+      setHeroError(null)
+      setHeroReady(false)
+    }
+    ;(async () => {
+      try {
+        const hero = await fetchHomeHeroMovies(MACCMS_HOME_HERO_COUNT)
+        if (!cancelled) {
+          setHeroMovies(hero)
+          writeHeroSessionCache(hero)
+          setHeroError(null)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          if (!readHeroSessionCache()) {
+            setHeroMovies([])
+            setHeroError(e instanceof Error ? e.message : '海报加载失败')
+          }
+        }
+      } finally {
+        if (!cancelled) setHeroReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const cat = categories[activeCategory] as HomeNavCategory
+    let cancelled = false
+    const cachedGrid = readGridSessionCache(activeCategory)
+    if (cachedGrid) {
+      setGridMovies(cachedGrid)
+      setGridError(null)
+    }
+    if (!cachedGrid) setGridLoading(true)
+    ;(async () => {
+      try {
+        const list = await fetchHomeLatestForCategory(cat)
+        if (!cancelled) {
+          setGridMovies(list)
+          writeGridSessionCache(activeCategory, list)
+          setGridError(null)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          if (!readGridSessionCache(activeCategory)) {
+            setGridMovies([])
+            setGridError(e instanceof Error ? e.message : '列表加载失败')
+          }
+        }
+      } finally {
+        if (!cancelled) setGridLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeCategory])
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
@@ -323,17 +470,36 @@ export function HomePage() {
 
   const catLen = categories.length
   const categoryLabel = categories[activeCategory] ?? categories[0]
-
-  const gridMovies = useMemo(
-    () => moviesForHomeCategory(activeCategory),
-    [activeCategory]
-  )
+  const updateBannerOn = showHomeBanner && Boolean(remote)
 
   return (
-    <div id="home-page" className="h-full w-full flex flex-col bg-background overflow-hidden">
+    <div
+      id="home-page"
+      className="flex min-h-full w-full flex-col bg-background pb-10"
+    >
       <header className="flex items-center px-tv-2xl py-tv-md z-30 relative">
         <h1 className="text-xl font-bold text-foreground">热门影视</h1>
+        {(heroError || gridError) && (
+          <span
+            className="ml-4 text-sm text-destructive truncate max-w-xl"
+            title={[heroError, gridError].filter(Boolean).join(' · ')}
+          >
+            {[heroError, gridError].filter(Boolean).join(' · ')}
+          </span>
+        )}
+        {gridLoading && (
+          <span className="ml-4 text-sm text-muted-foreground">列表加载中…</span>
+        )}
       </header>
+
+      {updateBannerOn && remote && (
+        <HomeUpdateBanner
+          heroIndex={heroIndex}
+          remoteVersion={remote.versionName}
+          currentVersion={currentVersionName}
+          onOpen={openUpdateDialog}
+        />
+      )}
 
       <section id="home-hero-anchor" className="px-tv-2xl mt-tv-sm relative overflow-visible scroll-mt-0">
         <div
@@ -341,20 +507,32 @@ export function HomePage() {
           ref={scrollContainerRef}
           className="flex gap-4 items-center min-h-[300px] overflow-x-auto overflow-y-visible no-scrollbar px-5 py-6"
         >
-          {heroMovies.map((movie, i) => (
-            <HomeHeroTile
-              key={movie.id}
-              i={i}
-              movie={movie}
-              heroIndex={heroIndex}
-              setHeroIndex={setHeroIndex}
-              heroIndexRef={heroIndexRef}
-              heroCount={heroMovies.length}
-              activeCategory={activeCategory}
-              navigate={navigate}
-              heroRef={(el) => setHeroRef(i, el)}
-            />
-          ))}
+          {!heroReady && !heroError ? (
+            <p className="text-muted-foreground px-5">海报加载中…</p>
+          ) : heroReady && heroMovies.length === 0 && !heroError ? (
+            <p className="max-w-xl px-5 text-sm text-muted-foreground">
+              暂无「推荐等级 {MACCMS_HERO_RECOMMEND_LEVEL}」的影片用于海报位。请在 MACCMS
+              后台将首页幻灯片条目的推荐值设为 {MACCMS_HERO_RECOMMEND_LEVEL}。
+            </p>
+          ) : heroMovies.length === 0 && heroError ? (
+            <p className="text-destructive px-5 text-sm">{heroError}</p>
+          ) : (
+            heroMovies.map((movie, i) => (
+              <HomeHeroTile
+                key={movie.id}
+                i={i}
+                movie={movie}
+                heroIndex={heroIndex}
+                setHeroIndex={setHeroIndex}
+                heroIndexRef={heroIndexRef}
+                heroCount={heroMovies.length}
+                activeCategory={activeCategory}
+                navigate={navigate}
+                heroRef={(el) => setHeroRef(i, el)}
+                showUpdateBanner={updateBannerOn}
+              />
+            ))
+          )}
         </div>
       </section>
 
@@ -369,6 +547,8 @@ export function HomePage() {
               setActiveCategory={setActiveCategory}
               heroIndexRef={heroIndexRef}
               categoriesLen={catLen}
+              heroStripLen={heroMovies.length}
+              showUpdateBanner={updateBannerOn}
             />
           ))}
           <HomeFilterTab
@@ -376,6 +556,8 @@ export function HomePage() {
             navigate={navigate}
             heroIndexRef={heroIndexRef}
             categoryLabel={categoryLabel}
+            heroStripLen={heroMovies.length}
+            showUpdateBanner={updateBannerOn}
           />
         </div>
       </section>

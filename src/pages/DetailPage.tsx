@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { cn } from '@/lib/utils'
 import { PosterCard } from '@/components/PosterCard'
-import { heroMovies, movieList } from '@/data/mockData'
 import type { Movie } from '@/data/mockData'
+import {
+  enrichMovieFromDetailRow,
+  fetchProvideVod,
+  fetchVodDetailById,
+  mapVodRowToMovie,
+  parsePlaySources,
+} from '@/lib/maccmsApi'
 import {
   ArrowLeft,
   Play,
@@ -215,6 +221,100 @@ function DetailEpisodePagerNext({
   )
 }
 
+function DetailDescToggleButton({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const spatial = useTvSpatialNode(
+    'detail-desc-toggle',
+    () => ({
+      down: 'detail-playbtn',
+      up: undefined,
+      left: undefined,
+      right: undefined,
+    }),
+    []
+  )
+
+  return (
+    <button
+      type="button"
+      {...spatial}
+      className="tv-focusable mt-2 rounded-md px-1 py-1 text-sm font-medium text-primary outline-offset-2 hover:underline"
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onToggle()
+        }
+      }}
+    >
+      {expanded ? '收起' : '展开全文'}
+    </button>
+  )
+}
+
+function DetailSynopsis({
+  movieId,
+  text,
+  onExpandableChange,
+}: {
+  movieId: string
+  text: string | undefined
+  onExpandableChange: (expandable: boolean) => void
+}) {
+  const display = (text ?? '').trim() || '暂无简介'
+  const [expanded, setExpanded] = useState(false)
+  const [canExpand, setCanExpand] = useState(false)
+  const pRef = useRef<HTMLParagraphElement>(null)
+
+  useLayoutEffect(() => {
+    setExpanded(false)
+  }, [movieId, display])
+
+  useLayoutEffect(() => {
+    if (display === '暂无简介') {
+      setCanExpand(false)
+      onExpandableChange(false)
+      return
+    }
+    const id = requestAnimationFrame(() => {
+      const el = pRef.current
+      if (!el) {
+        onExpandableChange(false)
+        return
+      }
+      const more = el.scrollHeight > el.clientHeight + 2
+      setCanExpand(more)
+      onExpandableChange(more)
+    })
+    return () => cancelAnimationFrame(id)
+  }, [display, movieId, onExpandableChange])
+
+  return (
+    <div className="max-w-[520px]">
+      <p
+        ref={pRef}
+        className={cn(
+          'text-sm text-muted-foreground leading-relaxed break-words',
+          !expanded && 'line-clamp-2'
+        )}
+      >
+        {display}
+      </p>
+      {canExpand && (
+        <DetailDescToggleButton
+          expanded={expanded}
+          onToggle={() => setExpanded((v) => !v)}
+        />
+      )}
+    </div>
+  )
+}
+
 function DetailRelatedCard({
   index,
   movie,
@@ -251,15 +351,90 @@ export function DetailPage() {
   const [selectedEpisode, setSelectedEpisode] = useState(1)
   const [currentSource, setCurrentSource] = useState(0)
   const [episodePage, setEpisodePage] = useState(0)
+  const [movie, setMovie] = useState<Movie | null>(null)
+  const [playBundles, setPlayBundles] = useState<
+    { name: string; episodes: { label: string; url: string }[] }[]
+  >([{ name: '加载中', episodes: [{ label: '正片', url: '' }] }])
+  const [relatedMovies, setRelatedMovies] = useState<Movie[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [synopsisExpandable, setSynopsisExpandable] = useState(false)
+
+  const onSynopsisExpandableChange = useCallback((v: boolean) => {
+    setSynopsisExpandable(v)
+  }, [])
 
   useTvSpatialMainEntry('detail-back')
 
-  const movie = heroMovies.find(m => m.id === id) || heroMovies[0]
-  const totalEpisodes = movie.episodes || 1
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setLoadError(null)
+    setSynopsisExpandable(false)
+    ;(async () => {
+      try {
+        const row = await fetchVodDetailById(id)
+        if (cancelled) return
+        if (!row) {
+          setLoadError('未找到影片')
+          setMovie(null)
+          setRelatedMovies([])
+          return
+        }
+        const base = mapVodRowToMovie(row)
+        setMovie(enrichMovieFromDetailRow(base, row))
+        const bundles = parsePlaySources(row)
+        setPlayBundles(
+          bundles.length > 0
+            ? bundles
+            : [{ name: '默认', episodes: [{ label: '正片', url: '' }] }]
+        )
+        setCurrentSource(0)
+        setSelectedEpisode(1)
+        setEpisodePage(0)
+        const tid = Number(row.type_id)
+        if (tid) {
+          /** videolist 含完整海报字段；list 精简接口在部分环境下封面易异常 */
+          const rel = await fetchProvideVod({
+            ac: 'videolist',
+            t: tid,
+            pg: 1,
+            pagesize: 20,
+            sort_direction: 'desc',
+          })
+          if (cancelled) return
+          const relList = (rel.list ?? [])
+            .filter(r => String(r.vod_id) !== id)
+            .slice(0, 3)
+            .map(mapVodRowToMovie)
+          setRelatedMovies(relList)
+        } else {
+          setRelatedMovies([])
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : '加载失败')
+          setMovie(null)
+          setRelatedMovies([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  const bundleEpisodes = playBundles[currentSource]?.episodes ?? [
+    { label: '正片', url: '' },
+  ]
+  const totalEpisodes = Math.max(1, bundleEpisodes.length)
 
   useEffect(() => {
     setEpisodePage(0)
-  }, [movie.id])
+  }, [id])
+
+  useEffect(() => {
+    setSelectedEpisode(e => Math.min(e, totalEpisodes))
+  }, [totalEpisodes, currentSource])
 
   useEffect(() => {
     if (totalEpisodes <= 1) return
@@ -267,7 +442,6 @@ export function DetailPage() {
     setEpisodePage(Math.floor(idx / EP_PER_PAGE))
   }, [selectedEpisode, totalEpisodes])
 
-  const relatedMovies = movieList.filter(m => m.id !== movie.id).slice(0, 3)
   const relatedLen = relatedMovies.length
   const relatedRightmostId =
     relatedLen > 0 ? `detail-rel-${relatedLen - 1}` : 'detail-back'
@@ -275,15 +449,15 @@ export function DetailPage() {
   const relatedFirstDownId = relatedLen > 0 ? 'detail-rel-0' : 'detail-playbtn'
 
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         document
           .querySelector<HTMLElement>('[data-spatial-id="detail-back"]')
           ?.focus({ preventScroll: true })
       })
     })
-    return () => cancelAnimationFrame(id)
-  }, [movie.id])
+    return () => cancelAnimationFrame(raf)
+  }, [id])
 
   const spatialBack = useTvSpatialNode(
     'detail-back',
@@ -306,26 +480,26 @@ export function DetailPage() {
   const spatialPlayBtn = useTvSpatialNode(
     'detail-playbtn',
     () => ({
-      up: undefined,
+      up: synopsisExpandable ? 'detail-desc-toggle' : undefined,
       left: 'detail-play',
       right: 'detail-fav',
       down: 'detail-src-0',
     }),
-    []
+    [synopsisExpandable]
   )
   const spatialFav = useTvSpatialNode(
     'detail-fav',
     () => ({
       left: 'detail-playbtn',
       right: 'detail-src-0',
-      up: undefined,
+      up: synopsisExpandable ? 'detail-desc-toggle' : undefined,
       down: 'detail-src-0',
     }),
-    []
+    [synopsisExpandable]
   )
 
-  const sources = ['蓝光', '超清', '高清', '标清', '备用源1', '备用源2']
-  const sourcesLen = sources.length
+  const sources = playBundles.map(b => b.name)
+  const sourcesLen = Math.max(1, sources.length)
 
   const episodeLastPage =
     totalEpisodes > 1 ? Math.max(0, Math.ceil(totalEpisodes / EP_PER_PAGE) - 1) : 0
@@ -347,6 +521,23 @@ export function DetailPage() {
         : showEpisodePager && hasNextEpisodePage
           ? 'detail-ep-page-next'
           : `detail-ep-${pageStart}`
+
+  if (!movie) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
+        <p className="text-lg text-foreground">{loadError || '加载中…'}</p>
+        {loadError && (
+          <button
+            type="button"
+            className="tv-focusable rounded-full bg-secondary px-5 py-2 text-sm"
+            onClick={() => navigate(-1)}
+          >
+            返回
+          </button>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -439,9 +630,11 @@ export function DetailPage() {
                 </div>
               )}
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed max-w-[520px]">
-              {movie.description || '暂无简介'}
-            </p>
+            <DetailSynopsis
+              movieId={movie.id}
+              text={movie.description}
+              onExpandableChange={onSynopsisExpandableChange}
+            />
           </div>
 
           <div className="flex items-center gap-3 mb-5">

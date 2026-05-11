@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { APP_REPO_PAGE_URL, APP_VERSION_NAME } from '@/config/version'
+import { useVersionUpdate } from '@/context/VersionUpdateContext'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import {
   Play,
@@ -7,6 +9,8 @@ import {
   HardDrive,
   Info,
   Check,
+  RefreshCw,
+  Download,
 } from 'lucide-react'
 
 interface SwitchProps {
@@ -95,6 +99,15 @@ function SettingItem({ icon, title, description, children }: SettingItemProps) {
 
 export function SettingsPage() {
   useTvSpatialMainEntry('settings-auto-skip')
+  const {
+    hasUpdate,
+    remote,
+    isChecking,
+    checkError,
+    refreshCheck,
+    openUpdateDialog,
+  } = useVersionUpdate()
+
   const spatialSkip = useTvSpatialNode(
     'settings-auto-skip',
     () => ({ down: 'settings-auto-next' }),
@@ -102,7 +115,25 @@ export function SettingsPage() {
   )
   const spatialNext = useTvSpatialNode(
     'settings-auto-next',
-    () => ({ up: 'settings-auto-skip' }),
+    () => ({
+      up: 'settings-auto-skip',
+      down: 'settings-clear-cache',
+    }),
+    []
+  )
+  const spatialClearCache = useTvSpatialNode(
+    'settings-clear-cache',
+    () => ({
+      up: 'settings-auto-next',
+      down: 'settings-version-update',
+    }),
+    []
+  )
+  const spatialVersionUpdate = useTvSpatialNode(
+    'settings-version-update',
+    () => ({
+      up: 'settings-clear-cache',
+    }),
     []
   )
 
@@ -199,13 +230,14 @@ export function SettingsPage() {
               </div>
             </div>
             <button
+              type="button"
+              {...spatialClearCache}
               className={cn(
                 'tv-focusable pill-focus px-5 py-2 rounded-full text-sm font-medium transition-all',
                 showCleared
                   ? 'bg-green-500 text-white'
                   : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
               )}
-              tabIndex={0}
               onClick={handleClearCache}
             >
               {showCleared ? (
@@ -221,20 +253,89 @@ export function SettingsPage() {
         <div className="bg-card rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-4">
             <Info size={20} className="text-primary" />
-            <h3 className="text-lg font-bold text-foreground">关于</h3>
+            <h3 className="text-lg font-bold text-foreground">关于应用</h3>
           </div>
           <div className="py-2 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+              <div className="min-w-0 flex-1">
+                <h4 className="text-base font-medium text-foreground">
+                  版本更新
+                </h4>
+                <p className="text-sm text-muted-foreground mt-1">
+                  仓库最新
+                  {isChecking
+                    ? '：检查中…'
+                    : remote
+                      ? `：v${remote.versionName}`
+                      : '：—'}
+                </p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  当前应用：v{APP_VERSION_NAME}
+                </p>
+                {hasUpdate && (
+                  <p className="text-sm text-primary mt-1.5 font-medium">
+                    有更新 · 已全局提醒（首页横幅、侧栏设置红点）
+                  </p>
+                )}
+                {checkError && (
+                  <p className="text-xs text-destructive mt-1">{checkError}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                {...spatialVersionUpdate}
+                className="relative tv-focusable pill-focus inline-flex shrink-0 items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium bg-secondary text-secondary-foreground hover:bg-surface-hover"
+                onClick={() => {
+                  if (hasUpdate && remote) {
+                    openUpdateDialog()
+                  } else {
+                    void refreshCheck()
+                  }
+                }}
+              >
+                <RefreshCw
+                  size={16}
+                  className={cn(isChecking && 'animate-spin')}
+                />
+                {isChecking
+                  ? '检查中…'
+                  : hasUpdate && remote
+                    ? '查看更新'
+                    : '检查更新'}
+                {!isChecking && hasUpdate && (
+                  <Download size={16} className="opacity-90" />
+                )}
+                {hasUpdate && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-card" />
+                )}
+              </button>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">应用名称</span>
               <span className="text-sm text-foreground font-medium">柠檬影视 TV</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">版本号</span>
-              <span className="text-sm text-foreground font-medium">v1.0.0</span>
+              <span className="text-sm text-foreground font-medium">
+                v{APP_VERSION_NAME}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">开发团队</span>
               <span className="text-sm text-foreground font-medium">Lemon Team</span>
+            </div>
+            <div className="pt-2 border-t border-border">
+              <p className="text-sm text-muted-foreground mb-1">开源仓库</p>
+              <button
+                type="button"
+                tabIndex={0}
+                className="tv-focusable w-full rounded-lg px-3 py-2 text-left text-sm text-primary break-all underline-offset-2 hover:underline"
+                onClick={() =>
+                  window.open(APP_REPO_PAGE_URL, '_blank', 'noopener,noreferrer')
+                }
+              >
+                {APP_REPO_PAGE_URL}
+              </button>
             </div>
           </div>
         </div>

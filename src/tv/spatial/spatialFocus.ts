@@ -28,39 +28,37 @@ export function isTvFocusLost(active: Element | null): boolean {
   return false
 }
 
-const MAIN_SCROLL_ID = 'tv-main-content'
-
 /**
- * 仅在焦点元素被裁切时滚动，避免网格内相邻移动时重复的 scrollIntoView / 强制同步布局。
+ * 沿祖先链调整每一个 overflow 滚动容器，使焦点节点完整落在可视区内。
+ * 解决收藏/历史等「主区域 + 内层滚动」嵌套时，仅用 nearest scrollIntoView 无法回到首行的问题。
  */
 export function scrollSpatialFocusIntoView(el: HTMLElement, margin = 16): void {
-  const rect = el.getBoundingClientRect()
-  const main = document.getElementById(MAIN_SCROLL_ID)
-
-  let rootTop = 0
-  let rootLeft = 0
-  let rootRight = window.innerWidth
-  let rootBottom = window.innerHeight
-
-  if (main?.contains(el)) {
-    const r = main.getBoundingClientRect()
-    rootTop = r.top
-    rootLeft = r.left
-    rootRight = r.right
-    rootBottom = r.bottom
+  let parent: HTMLElement | null = el.parentElement
+  while (parent && parent !== document.documentElement) {
+    const er = el.getBoundingClientRect()
+    const style = window.getComputedStyle(parent)
+    const canScrollY =
+      (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+      parent.scrollHeight > parent.clientHeight + 1
+    if (canScrollY) {
+      const pr = parent.getBoundingClientRect()
+      if (er.top < pr.top + margin) {
+        parent.scrollTop -= pr.top + margin - er.top
+      } else if (er.bottom > pr.bottom - margin) {
+        parent.scrollTop += er.bottom - (pr.bottom - margin)
+      }
+    }
+    const canScrollX =
+      (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+      parent.scrollWidth > parent.clientWidth + 1
+    if (canScrollX) {
+      const pr = parent.getBoundingClientRect()
+      if (er.left < pr.left + margin) {
+        parent.scrollLeft -= pr.left + margin - er.left
+      } else if (er.right > pr.right - margin) {
+        parent.scrollLeft += er.right - (pr.right - margin)
+      }
+    }
+    parent = parent.parentElement
   }
-
-  const clipped =
-    rect.top < rootTop + margin ||
-    rect.bottom > rootBottom - margin ||
-    rect.left < rootLeft + margin ||
-    rect.right > rootRight - margin
-
-  if (!clipped) return
-
-  el.scrollIntoView({
-    block: 'nearest',
-    behavior: 'instant',
-    inline: 'nearest',
-  })
 }

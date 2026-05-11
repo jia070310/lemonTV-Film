@@ -1,24 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
+import { queryFocusableSpatial } from '@/tv/spatial/spatialFocus'
 import { PosterCard } from '@/components/PosterCard'
 import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
-import { movieList, filterData } from '@/data/mockData'
-import type { FilterKey } from '@/data/mockData'
+import {
+  FILTER_TYPE_TO_IDS,
+  MACCMS_FILTER_KEYS,
+  getFilterLabels,
+  getFilterOptionsForCategory,
+  parseHomeCategory,
+  type MaccmsFilterKey,
+} from '@/data/maccmsTaxonomy'
 import type { Movie } from '@/data/mockData'
+import { fetchFilteredVodPage } from '@/lib/maccmsApi'
 import { ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
 
-const FILTER_KEYS = Object.keys(filterData) as FilterKey[]
 const FILTER_COLS = 5
 const FILTER_OPT_COLS = 3
-
-const categoryToTypeMap: Record<string, string> = {
-  '电视剧': '全部',
-  '电影': '全部',
-  '综艺': '全部',
-  '动漫': '动画片',
-}
+const FILTER_PAGE_SIZE = 20
 
 /** 与 Layout.tsx 中 navItems 顺序一致：电视剧=1、电影=2、综艺=3、动漫=4 */
 const FILTER_CATEGORY_TO_NAV_INDEX: Record<string, number> = {
@@ -38,11 +39,11 @@ function FilterSidebarRow({
   navLeftId,
 }: {
   index: number
-  fk: FilterKey
-  activeFilter: FilterKey | null
-  filters: Record<FilterKey, string>
-  filterLabels: Record<FilterKey, string>
-  toggleFilter: (key: FilterKey) => void
+  fk: MaccmsFilterKey
+  activeFilter: MaccmsFilterKey | null
+  filters: Record<MaccmsFilterKey, string>
+  filterLabels: Record<MaccmsFilterKey, string>
+  toggleFilter: (key: MaccmsFilterKey) => void
   /** 左侧全局分类栏 spatial id，例如 nav-1 */
   navLeftId: string
 }) {
@@ -52,7 +53,7 @@ function FilterSidebarRow({
       left: navLeftId,
       up: index > 0 ? `filter-sb-${index - 1}` : undefined,
       down:
-        index < FILTER_KEYS.length - 1 ? `filter-sb-${index + 1}` : undefined,
+        index < MACCMS_FILTER_KEYS.length - 1 ? `filter-sb-${index + 1}` : undefined,
       right:
         activeFilter === fk
           ? `filter-opt-${fk}-0`
@@ -66,13 +67,16 @@ function FilterSidebarRow({
       type="button"
       {...spatial}
       className={cn(
-        'filter-sidebar-btn tv-focusable w-full flex flex-col items-start gap-0 rounded-md px-2.5 py-1.5 text-left transition-[box-shadow,background-color,color,border-color] duration-150 ease-out',
+        'filter-sidebar-btn tv-focusable w-full min-h-[3.25rem] flex flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-3 text-left transition-[box-shadow,background-color,color,border-color] duration-150 ease-out',
         activeFilter === fk
           ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
       )}
       onClick={() => toggleFilter(fk)}
     >
+      <span className="text-xs font-medium leading-snug line-clamp-2 break-all">
+        {filters[fk]}
+      </span>
       <span
         className={cn(
           'text-[10px] leading-tight',
@@ -81,27 +85,28 @@ function FilterSidebarRow({
       >
         {filterLabels[fk]}
       </span>
-      <span className="text-xs font-medium leading-tight">{filters[fk]}</span>
     </button>
   )
 }
 
 function FilterModalClose({
   activeFilter,
-  filterKeyIndex,
+  optionsLen,
   onClose,
 }: {
-  activeFilter: FilterKey
-  filterKeyIndex: number
+  activeFilter: MaccmsFilterKey
+  optionsLen: number
   onClose: () => void
 }) {
+  /** 与选项网格首行最右格相连，避免左键焦点落到侧栏跑出弹窗 */
+  const firstRowRightIdx = Math.min(FILTER_OPT_COLS - 1, Math.max(0, optionsLen - 1))
   const spatial = useTvSpatialNode(
     'filter-modal-close',
     () => ({
-      left: `filter-sb-${filterKeyIndex}`,
+      left: `filter-opt-${activeFilter}-${firstRowRightIdx}`,
       down: `filter-opt-${activeFilter}-0`,
     }),
-    [activeFilter, filterKeyIndex]
+    [activeFilter, firstRowRightIdx]
   )
 
   return (
@@ -119,46 +124,48 @@ function FilterModalClose({
 
 function FilterOverlayOption({
   activeFilter,
-  filterKeyIndex,
   opt,
   optIndex,
   optionsLen,
   filters,
   selectFilter,
 }: {
-  activeFilter: FilterKey
-  filterKeyIndex: number
+  activeFilter: MaccmsFilterKey
   opt: string
   optIndex: number
   optionsLen: number
-  filters: Record<FilterKey, string>
-  selectFilter: (key: FilterKey, value: string) => void
+  filters: Record<MaccmsFilterKey, string>
+  selectFilter: (key: MaccmsFilterKey, value: string) => void
 }) {
   const row = Math.floor(optIndex / FILTER_OPT_COLS)
   const col = optIndex % FILTER_OPT_COLS
   const idPrefix = `filter-opt-${activeFilter}`
+  const rowEndIdx = Math.min(row * FILTER_OPT_COLS + FILTER_OPT_COLS - 1, optionsLen - 1)
+  const rowStartIdx = row * FILTER_OPT_COLS
+  const downWrapId = `${idPrefix}-${col}`
+  const downNeighbor =
+    optIndex + FILTER_OPT_COLS < optionsLen
+      ? `${idPrefix}-${optIndex + FILTER_OPT_COLS}`
+      : downWrapId === `${idPrefix}-${optIndex}`
+        ? 'filter-modal-close'
+        : downWrapId
 
   const spatial = useTvSpatialNode(
     `${idPrefix}-${optIndex}`,
     () => ({
       left:
-        col === 0
-          ? `filter-sb-${filterKeyIndex}`
-          : `${idPrefix}-${optIndex - 1}`,
+        col === 0 ? `${idPrefix}-${rowEndIdx}` : `${idPrefix}-${optIndex - 1}`,
       right:
         col < FILTER_OPT_COLS - 1 && optIndex + 1 < optionsLen
           ? `${idPrefix}-${optIndex + 1}`
-          : undefined,
+          : `${idPrefix}-${rowStartIdx}`,
       up:
         row === 0
           ? 'filter-modal-close'
           : `${idPrefix}-${optIndex - FILTER_OPT_COLS}`,
-      down:
-        optIndex + FILTER_OPT_COLS < optionsLen
-          ? `${idPrefix}-${optIndex + FILTER_OPT_COLS}`
-          : undefined,
+      down: downNeighbor,
     }),
-    [activeFilter, filterKeyIndex, optIndex, optionsLen]
+    [activeFilter, optIndex, optionsLen, row, col, rowEndIdx, rowStartIdx, downNeighbor]
   )
 
   return (
@@ -351,28 +358,99 @@ function FilterPgNext({
 export function FilterPage() {
   const [searchParams] = useSearchParams()
   const categoryParam = searchParams.get('category') || ''
+  const homeCat = useMemo(
+    () => parseHomeCategory(categoryParam || null),
+    [categoryParam]
+  )
 
   const filterNavLeftId =
     categoryParam && FILTER_CATEGORY_TO_NAV_INDEX[categoryParam] != null
       ? `nav-${FILTER_CATEGORY_TO_NAV_INDEX[categoryParam]}`
       : 'nav-1'
 
-  const initialType = categoryToTypeMap[categoryParam] || '全部'
+  const filterModalData = useMemo(
+    () => getFilterOptionsForCategory(homeCat),
+    [homeCat]
+  )
 
-  const [filters, setFilters] = useState<Record<FilterKey, string>>({
-    type: initialType,
-    plot: '全部',
-    area: '全部',
-    lang: '全部',
-    year: '全部',
-    sort: '人气排序',
-  })
-  const [activeFilter, setActiveFilter] = useState<FilterKey | null>(null)
+  const defaultFilters = useMemo(
+    (): Record<MaccmsFilterKey, string> => ({
+      type: '全部',
+      plot: '全部',
+      area: '全部',
+      lang: '全部',
+      year: '全部',
+      sort: '时间排序',
+    }),
+    []
+  )
+
+  const [filters, setFilters] = useState<Record<MaccmsFilterKey, string>>(defaultFilters)
+  const [activeFilter, setActiveFilter] = useState<MaccmsFilterKey | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const totalPages = 6
+  const [listMovies, setListMovies] = useState<Movie[]>([])
+  const [matchTotal, setMatchTotal] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
 
-  const total = movieList.length
-  const lastRowStart = Math.floor((total - 1) / FILTER_COLS) * FILTER_COLS
+  useEffect(() => {
+    setFilters(defaultFilters)
+    setCurrentPage(1)
+  }, [homeCat, defaultFilters])
+
+  useEffect(() => {
+    let cancelled = false
+    setListLoading(true)
+    setListError(null)
+    const typeIds =
+      FILTER_TYPE_TO_IDS[homeCat][filters.type] ??
+      FILTER_TYPE_TO_IDS[homeCat]['全部']
+    ;(async () => {
+      try {
+        const { rows, total } = await fetchFilteredVodPage(
+          {
+            homeCategory: homeCat,
+            typeLabel: filters.type,
+            plot: filters.plot,
+            area: filters.area,
+            lang: filters.lang,
+            year: filters.year,
+            sort: filters.sort,
+            typeIds,
+          },
+          currentPage,
+          FILTER_PAGE_SIZE
+        )
+        if (cancelled) return
+        setListMovies(rows)
+        setMatchTotal(total)
+      } catch (e) {
+        if (!cancelled) {
+          setListMovies([])
+          setMatchTotal(0)
+          setListError(e instanceof Error ? e.message : '加载失败')
+        }
+      } finally {
+        if (!cancelled) setListLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    homeCat,
+    currentPage,
+    filters.type,
+    filters.plot,
+    filters.area,
+    filters.lang,
+    filters.year,
+    filters.sort,
+  ])
+
+  const total = listMovies.length
+  const totalPages = Math.max(1, Math.ceil(matchTotal / FILTER_PAGE_SIZE))
+  const lastRowStart = total > 0 ? Math.floor((total - 1) / FILTER_COLS) * FILTER_COLS : 0
 
   /** 禁用按钮无法聚焦：第 1 页时「上一页」不可用，网格下移须落到页码 1 */
   const gridFooterDownId =
@@ -382,27 +460,35 @@ export function FilterPage() {
     activeFilter != null ? `filter-opt-${activeFilter}-0` : 'filter-sb-0'
   useTvSpatialMainEntry(mainEntry)
 
-  const filterLabels: Record<FilterKey, string> = {
-    type: '类型',
-    plot: '剧情',
-    area: '地区',
-    lang: '语言',
-    year: '年份',
-    sort: '排序',
-  }
+  const filterLabels = getFilterLabels()
 
-  const selectFilter = (key: FilterKey, value: string) => {
+  const selectFilter = (key: MaccmsFilterKey, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
     setActiveFilter(null)
     setCurrentPage(1)
   }
 
-  const toggleFilter = (key: FilterKey) => {
+  const toggleFilter = (key: MaccmsFilterKey) => {
     setActiveFilter(activeFilter === key ? null : key)
   }
 
-  const activeFilterKeyIndex =
-    activeFilter != null ? FILTER_KEYS.indexOf(activeFilter) : -1
+  /** 弹窗挂载后焦点落到第一个选项（与 spatial 主入口一致） */
+  useEffect(() => {
+    if (!activeFilter) return
+    let cancelled = false
+    const entryId = `filter-opt-${activeFilter}-0`
+    const focusFirst = (): void => {
+      if (cancelled) return
+      queryFocusableSpatial(entryId)?.focus({ preventScroll: true })
+    }
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(focusFirst)
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(id)
+    }
+  }, [activeFilter])
 
   useEffect(() => {
     if (!activeFilter) return
@@ -431,11 +517,13 @@ export function FilterPage() {
 
   return (
     <div className="h-full w-full flex bg-background overflow-hidden">
-      <aside className="flex h-full w-[212px] shrink-0 flex-col border-r border-border bg-card px-4 py-5">
-        <h2 className="mb-6 px-0.5 text-lg font-bold text-foreground">筛选条件</h2>
+      <aside className="flex h-full w-[168px] shrink-0 flex-col border-r border-border bg-card px-3 py-5">
+        <h2 className="mb-5 px-0.5 text-base font-bold text-foreground leading-tight">
+          筛选条件
+        </h2>
 
-        <nav className="flex-1 space-y-2 overflow-y-auto thin-scrollbar px-0.5 py-2 pr-1">
-          {FILTER_KEYS.map((fk, index) => (
+        <nav className="flex-1 space-y-2.5 overflow-y-auto thin-scrollbar px-0.5 py-2 pr-0.5">
+          {MACCMS_FILTER_KEYS.map((fk, index) => (
             <FilterSidebarRow
               key={fk}
               index={index}
@@ -475,23 +563,22 @@ export function FilterPage() {
                 id="filter-modal-title"
                 className="min-w-0 flex-1 text-lg font-bold leading-snug text-foreground"
               >
-                {filterData[activeFilter].title}
+                {filterModalData[activeFilter].title}
               </h3>
               <FilterModalClose
                 activeFilter={activeFilter}
-                filterKeyIndex={activeFilterKeyIndex}
+                optionsLen={filterModalData[activeFilter].options.length}
                 onClose={() => setActiveFilter(null)}
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {filterData[activeFilter].options.map((opt, optIndex) => (
+              {filterModalData[activeFilter].options.map((opt, optIndex) => (
                 <FilterOverlayOption
                   key={opt}
                   activeFilter={activeFilter}
-                  filterKeyIndex={activeFilterKeyIndex}
                   opt={opt}
                   optIndex={optIndex}
-                  optionsLen={filterData[activeFilter].options.length}
+                  optionsLen={filterModalData[activeFilter].options.length}
                   filters={filters}
                   selectFilter={selectFilter}
                 />
@@ -509,19 +596,25 @@ export function FilterPage() {
           <h2 className="text-2xl font-bold text-foreground mb-1">
             {categoryParam ? `${categoryParam}筛选` : '影片发现'}
           </h2>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
             <span>
               {filters.type} · {filters.year} · {filters.area}
             </span>
             <span>/</span>
-            <span>找到 2,480 部影片</span>
+            <span>
+              {listLoading
+                ? '加载中…'
+                : listError
+                  ? listError
+                  : `约 ${matchTotal} 条（当前检索深度内）`}
+            </span>
           </div>
         </header>
 
         <div className="mb-8 grid grid-cols-5 gap-6">
-          {movieList.map((movie, index) => (
+          {listMovies.map((movie, index) => (
             <FilterGridCell
-              key={movie.id}
+              key={`${movie.id}-${index}`}
               index={index}
               movie={movie}
               total={total}
@@ -530,36 +623,38 @@ export function FilterPage() {
           ))}
         </div>
 
-        <div className="flex flex-col items-center gap-4 pb-16">
-          <div className="flex items-center gap-3">
-            <FilterPgPrev
-              lastRowStart={lastRowStart}
-              disabled={currentPage === 1}
-              onPrev={() => setCurrentPage(p => Math.max(1, p - 1))}
-            />
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <FilterPgNum
-                key={page}
-                page={page}
-                currentPage={currentPage}
-                totalPages={totalPages}
+        {matchTotal > 0 && (
+          <div className="flex flex-col items-center gap-4 pb-16">
+            <div className="flex items-center gap-3">
+              <FilterPgPrev
                 lastRowStart={lastRowStart}
-                setPage={setCurrentPage}
+                disabled={currentPage === 1}
+                onPrev={() => setCurrentPage(p => Math.max(1, p - 1))}
               />
-            ))}
-            <FilterPgNext
-              lastRowStart={lastRowStart}
-              totalPages={totalPages}
-              disabled={currentPage === totalPages}
-              onNext={() =>
-                setCurrentPage(p => Math.min(totalPages, p + 1))
-              }
-            />
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <FilterPgNum
+                  key={page}
+                  page={page}
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  lastRowStart={lastRowStart}
+                  setPage={setCurrentPage}
+                />
+              ))}
+              <FilterPgNext
+                lastRowStart={lastRowStart}
+                totalPages={totalPages}
+                disabled={currentPage === totalPages}
+                onNext={() =>
+                  setCurrentPage(p => Math.min(totalPages, p + 1))
+                }
+              />
+            </div>
+            <span className="text-muted-foreground text-sm">
+              第 {currentPage} 页，共 {totalPages} 页
+            </span>
           </div>
-          <span className="text-muted-foreground text-sm">
-            第 {currentPage} 页，共 {totalPages} 页
-          </span>
-        </div>
+        )}
       </main>
     </div>
   )

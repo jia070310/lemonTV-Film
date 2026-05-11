@@ -98,7 +98,9 @@ export const movieList: Movie[] = [
   { id: '18', title: '都市奇缘', poster: '/images/movie-poster-8.png', rating: 8.2, year: '2026', genre: '爱情', area: '韩国' },
 ]
 
-export const categories = ['电视剧', '电影', '综艺', '动漫'] as const
+import { HOME_NAV_CATEGORIES } from '@/data/maccmsTaxonomy'
+
+export const categories = HOME_NAV_CATEGORIES
 export const subCategories = ['热门', '电视', '电影', '综艺', '动漫'] as const
 
 export const filterData = {
