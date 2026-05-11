@@ -124,7 +124,7 @@ function DetailEpisodeBtn({
       className={cn(
         'tv-focusable tab-focus h-10 rounded-lg text-sm font-medium transition-all duration-200',
         ep === selectedEpisode
-          ? 'bg-primary text-primary-foreground'
+          ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
       )}
       onClick={() => setEpisode(ep)}
@@ -376,17 +376,20 @@ export function DetailPage() {
               <ArrowLeft size={20} className="text-foreground" />
             </button>
 
-            <button
-              type="button"
-              {...spatialPlay}
-              className="tv-focusable absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full bg-primary/90 backdrop-blur-sm flex items-center justify-center transition-[transform,box-shadow] duration-150 ease-out hover:scale-110 focus-visible:scale-110"
-              onClick={() => navigate(`/player/${movie.id}`)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') navigate(`/player/${movie.id}`)
-              }}
-            >
-              <Play size={36} className="text-primary-foreground ml-1" fill="currentColor" />
-            </button>
+            {/* 居中不用 transform，避免 .tv-focusable:focus { transform: none } 抵消 translate 导致图标移位 */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+              <button
+                type="button"
+                {...spatialPlay}
+                className="tv-focusable detail-hero-play pointer-events-auto w-20 h-20 rounded-full flex items-center justify-center hover:scale-110 focus:scale-100 focus-visible:scale-100"
+                onClick={() => navigate(`/player/${movie.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') navigate(`/player/${movie.id}`)
+                }}
+              >
+                <Play size={36} className="ml-1 shrink-0" fill="currentColor" />
+              </button>
+            </div>
 
             <div className="absolute bottom-6 left-6 text-foreground">
               <p className="text-sm text-muted-foreground">
@@ -445,7 +448,7 @@ export function DetailPage() {
             <button
               type="button"
               {...spatialPlayBtn}
-              className="tv-focusable pill-focus flex items-center gap-2 px-6 py-2.5 rounded-full bg-primary text-primary-foreground font-medium text-sm"
+              className="tv-focusable detail-play-pill pill-focus flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm"
               onClick={() => navigate(`/player/${movie.id}`)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') navigate(`/player/${movie.id}`)
@@ -584,7 +587,7 @@ function SourceChip({
       className={cn(
         'tv-focusable tab-focus px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
         index === currentSource
-          ? 'bg-primary text-primary-foreground'
+          ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
       )}
       onClick={() => setCurrentSource(index)}

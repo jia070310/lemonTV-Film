@@ -40,9 +40,17 @@
 
     /* Shadows */
     --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
-    --shadow-focus: 0 0 0 3px hsl(52 97% 52% / 0.8);
+    --shadow-focus: none;
     --shadow-glow: none;
     --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.6);
+
+    /* TV：选中态（深灰底白字） */
+    --tv-selected-bg: 0 0% 18%;
+    --tv-selected-fg: 0 0% 98%;
+
+    /* 海报/卡片焦点中央播放图标（SVG data URI） */
+    /* 纯白色三角播放图标（无圆底） */
+    --poster-play-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Cpath fill='%23ffffff' fill-opacity='0.95' d='M22 14 L58 36 L22 58 Z'/%3E%3C/svg%3E");
   }
 }
 
@@ -62,36 +70,69 @@
     overflow: hidden;
   }
 
-  /* TV Focus Ring — avoid transition-all (animates every property = janky remote navigation) */
+  /*
+   * TV 焦点：仅黄底黑字，无描边、无发光、无放大（:focus 兼容遥控器 element.focus()）
+   */
   .tv-focusable {
     outline: none;
-    transition-property: box-shadow, transform, background-color, color, border-color;
-    transition-duration: 120ms;
-    transition-timing-function: ease-out;
+    /* 遥控器连续移动时禁用过渡，避免每格触发动画与多层重绘 */
+    transition: none;
   }
 
-  .tv-focusable:focus-visible {
-    box-shadow: var(--shadow-focus);
-    transform: scale(1.03);
-    z-index: 20;
+  .tv-focusable:focus-visible,
+  .tv-focusable:focus {
+    box-shadow: none !important;
+    outline: none !important;
+    transform: none !important;
+    background-color: hsl(var(--lemon)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+    border-color: transparent !important;
   }
 
-  .tv-focusable.tv-focus-yellow:focus-visible {
-    background-color: hsl(var(--lemon));
+  .tv-focusable:focus-visible svg,
+  .tv-focusable:focus svg {
     color: hsl(var(--primary-foreground));
+    stroke: currentColor;
+  }
+
+  .tv-focusable:not(.poster-focus):focus-visible *,
+  .tv-focusable:not(.poster-focus):focus * {
+    color: inherit !important;
+  }
+
+  input.tv-focusable:focus::placeholder,
+  textarea.tv-focusable:focus::placeholder {
+    color: hsl(var(--primary-foreground) / 0.45);
   }
 
   /*
-   * 筛选页侧栏：不做放大；焦点时抬升到兄弟节点之上，避免被上下条目压住或裁切感
-   * （需 position: relative，否则单纯 z-index 在静态流里不稳定）
+   * 详情页播放：未焦点深灰底 + 白图标/文案；焦点仍由 .tv-focusable:focus 统一为黄底黑字
+   */
+  .tv-focusable.detail-hero-play:not(:focus) {
+    background-color: hsl(var(--tv-selected-bg));
+    color: #fff;
+  }
+
+  .tv-focusable.detail-hero-play:not(:focus) svg {
+    color: #fff;
+    stroke: currentColor;
+  }
+
+  .tv-focusable.detail-play-pill:not(:focus) {
+    background-color: hsl(var(--tv-selected-bg));
+    color: #fff;
+  }
+
+  /*
+   * 筛选页侧栏：焦点时抬升，避免被相邻条目裁切
    */
   .tv-focusable.filter-sidebar-btn {
     position: relative;
     z-index: 0;
   }
 
-  .tv-focusable.filter-sidebar-btn:focus-visible {
-    transform: none;
+  .tv-focusable.filter-sidebar-btn:focus-visible,
+  .tv-focusable.filter-sidebar-btn:focus {
     z-index: 50;
   }
 
@@ -106,67 +147,94 @@
     z-index: 50;
   }
 
-  /* Selected pill/tab (keyboard “checked” state, not focus ring) */
+  /* 选中态：深灰底白字（焦点时由 .tv-focusable:focus 覆盖为黄底黑字） */
   .tv-tab-selected {
-    background-color: hsl(0 0% 22%);
-    color: hsl(0 0% 98%);
+    background-color: hsl(var(--tv-selected-bg));
+    color: hsl(var(--tv-selected-fg));
   }
 
-  /*
-   * Poster / hero focus: ring follows border-radius (outline is rectangular on some UIs).
-   * Solid stroke only, no outer glow.
-   */
   .poster-focus {
-    transition-property: box-shadow, transform;
-    transition-duration: 120ms;
-    transition-timing-function: ease-out;
+    transition: none;
+  }
+
+  /* 焦点时封面中央播放图标（::after 叠在封面与角标之上） */
+  .poster-focus:focus-visible::after,
+  .poster-focus:focus::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: clamp(2.75rem, 36%, 5rem);
+    height: clamp(2.75rem, 36%, 5rem);
+    z-index: 8;
+    pointer-events: none;
+    background-image: var(--poster-play-icon);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+  }
+
+  .poster-focus:focus-visible img,
+  .poster-focus:focus img {
+    opacity: 0.72;
   }
 
   /*
-   * TV 空间导航用 element.focus() 时往往没有 :focus-visible，需同时匹配 :focus。
-   */
-  .poster-focus:focus-visible,
-  .poster-focus:focus {
-    outline: none;
-    transform: scale(1.03);
-    z-index: 20;
-    box-shadow: 0 0 0 3px hsl(var(--lemon));
-  }
-
-  /* Poster also uses .tv-focusable: prefer card-shaped ring over generic focus shadow */
-  .poster-focus.tv-focusable:focus-visible,
-  .poster-focus.tv-focusable:focus {
-    box-shadow: 0 0 0 3px hsl(var(--lemon));
-    transform: scale(1.03);
-  }
-
-  /*
-   * 首页海报条：展开态 z-[2] 文案渐变会盖住内层 box-shadow。
-   * 描边画在外壳 :focus-within 上，并取消内层阴影以免重复。
+   * 首页海报条：渐变层盖住内层，焦点用半透明黄罩层 + 文案改黑色
    */
   #hero-carousel-scroll .hero-carousel-item:focus-within {
     z-index: 25;
-    box-shadow: 0 0 0 3px hsl(var(--lemon));
+  }
+
+  /* 海报条：黄罩在封面与渐变之下；播放图标在渐变之上避免被挡住 */
+  #hero-carousel-scroll .hero-carousel-item:focus-within::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    background: hsl(var(--lemon) / 0.45);
+    pointer-events: none;
+  }
+
+  #hero-carousel-scroll .hero-carousel-item:focus-within::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 42%;
+    transform: translate(-50%, -50%);
+    width: clamp(3rem, 18%, 5.25rem);
+    height: clamp(3rem, 18%, 5.25rem);
+    z-index: 4;
+    pointer-events: none;
+    background-image: var(--poster-play-icon);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+  }
+
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus-visible::after,
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus::after {
+    content: none;
   }
 
   #hero-carousel-scroll .hero-carousel-item .poster-focus:focus-visible,
   #hero-carousel-scroll .hero-carousel-item .poster-focus:focus {
+    background-color: transparent !important;
+  }
+
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus-visible img,
+  #hero-carousel-scroll .hero-carousel-item .poster-focus:focus img {
+    opacity: 0.75;
+  }
+
+  /* pill/tab 仅作标记；焦点样式统一由 .tv-focusable 提供 */
+  .pill-focus:focus-visible,
+  .pill-focus:focus,
+  .tab-focus:focus-visible,
+  .tab-focus:focus {
     transform: none;
-    box-shadow: none;
-  }
-
-  /* Pill button focus — yellow background, black text */
-  .pill-focus:focus-visible {
-    background-color: hsl(var(--lemon)) !important;
-    color: hsl(var(--primary-foreground)) !important;
-    transform: scale(1.02);
-  }
-
-  /* Tab / chip focus — yellow background, black text */
-  .tab-focus:focus-visible {
-    background-color: hsl(var(--lemon)) !important;
-    color: hsl(var(--primary-foreground)) !important;
-    transform: scale(1.02);
   }
 
   /* Hide scrollbar */
@@ -202,7 +270,7 @@
     transition-timing-function: ease-out;
     box-shadow: var(--shadow-card);
   }
-  .tv-card:hover, .tv-card:focus-within {
+  .tv-card:hover {
     box-shadow: var(--shadow-elevated);
     transform: translateY(-3px);
   }

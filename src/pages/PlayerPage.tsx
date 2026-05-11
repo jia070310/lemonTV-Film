@@ -514,20 +514,21 @@ export function PlayerPage() {
         </div>
       )}
 
-      {/* Top bar */}
+      {/* Top bar — inert 隐藏时禁止聚焦子控件，避免焦点落在 opacity-0 区域导致「光标消失」 */}
       <div
         className={cn(
           'absolute top-0 inset-x-0 z-40 gradient-top transition-all duration-500',
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-full pointer-events-none'
         )}
         onClick={(e) => e.stopPropagation()}
+        // Chromium/WebView：控件隐藏时禁止子元素参与焦点（旧版 @types/react 无 inert）
+        {...(!showControls ? ({ inert: true } as object) : {})}
       >
         <div className="flex items-center justify-between px-10 py-6">
           <div className="flex items-center gap-4">
             <button
               className={cn(
-                'tv-focusable pill-focus w-10 h-10 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center',
-                focusedZone === 'top' && 'ring-2 ring-primary'
+                'tv-focusable pill-focus w-10 h-10 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center'
               )}
               tabIndex={0}
               onFocus={() => setFocusedZone('top')}
@@ -558,6 +559,7 @@ export function PlayerPage() {
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'
         )}
         onClick={(e) => e.stopPropagation()}
+        {...(!showControls ? ({ inert: true } as object) : {})}
       >
         <div className="px-10 pb-8 pt-16">
           {/* Progress bar with time bubble */}
@@ -565,10 +567,7 @@ export function PlayerPage() {
             {/* Time bubble */}
             <div className="relative w-full h-6 mb-1">
               <div
-                className={cn(
-                  'absolute top-0 -translate-x-1/2 transition-all duration-200',
-                  (progressFocused || controlsMode === 'seek') && 'scale-110'
-                )}
+                className="absolute top-0 -translate-x-1/2 transition-all duration-200"
                 style={{ left: `${progress}%` }}
               >
                 <div
@@ -637,10 +636,7 @@ export function PlayerPage() {
                 <SkipBack size={20} />
               </button>
               <button
-                className={cn(
-                  'tv-focusable w-12 h-12 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center text-foreground transition-all hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground',
-                  focusedZone === 'bottom' && 'ring-2 ring-primary/50'
-                )}
+                className="tv-focusable w-12 h-12 rounded-full bg-foreground/10 backdrop-blur-sm flex items-center justify-center text-foreground transition-all hover:bg-primary hover:text-primary-foreground"
                 tabIndex={0}
                 onFocus={() => setFocusedZone('bottom')}
                 onBlur={() => setFocusedZone(prev => prev === 'bottom' ? 'none' : prev)}
@@ -676,7 +672,7 @@ export function PlayerPage() {
                 className={cn(
                   'tv-focusable pill-focus flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all',
                   activePanel === 'speed'
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'tv-tab-selected'
                     : 'bg-foreground/10 text-foreground/80 hover:bg-foreground/20'
                 )}
                 tabIndex={0}
@@ -692,7 +688,7 @@ export function PlayerPage() {
                   className={cn(
                     'tv-focusable pill-focus flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all',
                     activePanel === 'episodes'
-                      ? 'bg-primary text-primary-foreground'
+                      ? 'tv-tab-selected'
                       : 'bg-foreground/10 text-foreground/80 hover:bg-foreground/20'
                   )}
                   tabIndex={0}
@@ -708,7 +704,7 @@ export function PlayerPage() {
                 className={cn(
                   'tv-focusable pill-focus flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all',
                   activePanel === 'source'
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'tv-tab-selected'
                     : 'bg-foreground/10 text-foreground/80 hover:bg-foreground/20'
                 )}
                 tabIndex={0}
@@ -723,7 +719,7 @@ export function PlayerPage() {
                 className={cn(
                   'tv-focusable pill-focus flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all',
                   activePanel === 'skip'
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'tv-tab-selected'
                     : 'bg-foreground/10 text-foreground/80 hover:bg-foreground/20'
                 )}
                 tabIndex={0}
@@ -808,7 +804,7 @@ function SpeedPanel({ speeds, currentSpeed, onSelect, onClose }: {
             className={cn(
               'tv-focusable tab-focus py-2.5 rounded-lg text-sm font-medium transition-all',
               speed === currentSpeed
-                ? 'bg-primary text-primary-foreground'
+                ? 'tv-tab-selected'
                 : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
             )}
             tabIndex={0}
@@ -834,7 +830,7 @@ function EpisodesPanel({ totalEpisodes, currentEpisode, onSelect, onClose }: {
             className={cn(
               'tv-focusable tab-focus py-2.5 rounded-lg text-sm font-medium transition-all',
               ep === currentEpisode
-                ? 'bg-primary text-primary-foreground'
+                ? 'tv-tab-selected'
                 : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
             )}
             tabIndex={0}
@@ -860,7 +856,7 @@ function SourcePanel({ sources, currentSource, onSelect, onClose }: {
             className={cn(
               'tv-focusable tab-focus py-3 px-4 rounded-lg text-sm font-medium text-left transition-all flex items-center justify-between',
               idx === currentSource
-                ? 'bg-primary text-primary-foreground'
+                ? 'tv-tab-selected'
                 : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
             )}
             tabIndex={0}
@@ -893,7 +889,7 @@ function SkipPanel({ onClose }: { onClose: () => void }) {
               className={cn(
                 'tv-focusable px-3 py-1 rounded-full text-xs font-medium transition-all',
                 introEnabled
-                  ? 'bg-primary/20 text-primary'
+                  ? 'tv-tab-selected'
                   : 'bg-secondary text-muted-foreground'
               )}
               tabIndex={0}
@@ -935,7 +931,7 @@ function SkipPanel({ onClose }: { onClose: () => void }) {
               className={cn(
                 'tv-focusable px-3 py-1 rounded-full text-xs font-medium transition-all',
                 outroEnabled
-                  ? 'bg-primary/20 text-primary'
+                  ? 'tv-tab-selected'
                   : 'bg-secondary text-muted-foreground'
               )}
               tabIndex={0}

@@ -63,7 +63,7 @@ function SidebarNavButton({
       className={cn(
         'tv-focusable w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left outline-none transition-[box-shadow,transform,colors] duration-150 ease-out',
         active
-          ? 'bg-primary text-primary-foreground'
+          ? 'tv-tab-selected'
           : 'text-secondary-foreground hover:bg-surface-hover'
       )}
       onClick={() => navigate(item.path)}
@@ -71,14 +71,14 @@ function SidebarNavButton({
       <span
         className={cn(
           'flex-shrink-0',
-          active ? 'text-primary-foreground' : 'text-muted-foreground'
+          active ? 'text-inherit' : 'text-muted-foreground'
         )}
       >
         {item.icon}
       </span>
       <span className="text-sm font-medium">{item.label}</span>
       {active && (
-        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-foreground" />
+        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-current opacity-90" />
       )}
     </button>
   )

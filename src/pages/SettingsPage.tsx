@@ -54,7 +54,7 @@ function TvSelect({ options, value, onChange }: SelectOptionProps) {
           className={cn(
             'tv-focusable pill-focus px-4 py-1.5 rounded-full text-sm transition-all',
             value === opt
-              ? 'bg-primary text-primary-foreground'
+              ? 'tv-tab-selected'
               : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
           )}
           tabIndex={0}

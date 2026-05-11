@@ -1,4 +1,4 @@
-import { useState, useRef, useLayoutEffect, useEffect } from 'react'
+import { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
@@ -10,6 +10,33 @@ import type { Movie } from '@/data/mockData'
 import { SlidersHorizontal } from 'lucide-react'
 
 const GRID_COLS = 6
+
+/** 首页分类与列表 genre/tag 的演示映射（无数据时回退全列表） */
+function moviesForHomeCategory(catIndex: number): Movie[] {
+  const cat = categories[catIndex]
+  let list: Movie[]
+  switch (cat) {
+    case '电视剧':
+      list = movieList.filter(m =>
+        ['爱情', '悬疑', '武侠', '历史', '战争'].includes(m.genre)
+      )
+      break
+    case '电影':
+      list = movieList.filter(m =>
+        ['科幻', '动作', '冒险', '奇幻', '竞速'].includes(m.genre)
+      )
+      break
+    case '综艺':
+      list = movieList.filter(m => Boolean(m.tag))
+      break
+    case '动漫':
+      list = movieList.filter(m => ['奇幻', '科幻'].includes(m.genre))
+      break
+    default:
+      list = [...movieList]
+  }
+  return list.length > 0 ? list : [...movieList]
+}
 
 function HomeHeroTile({
   i,
@@ -135,13 +162,13 @@ function HomeCategoryTab({
       {...spatial}
       id={`cat-btn-${i}`}
       className={cn(
-        'tv-focusable tab-focus px-6 py-2 rounded-full text-sm font-medium transition-[box-shadow,transform,colors] duration-150 ease-out',
+        'tv-focusable tab-focus inline-flex items-center gap-2.5 px-6 py-2 rounded-full text-sm font-medium transition-[box-shadow,transform,colors] duration-150 ease-out',
         i === activeCategory
           ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
       )}
+      aria-pressed={i === activeCategory}
       onClick={() => setActiveCategory(i)}
-      onFocus={() => setActiveCategory(i)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
@@ -149,7 +176,13 @@ function HomeCategoryTab({
         }
       }}
     >
-      {label}
+      <span>{label}</span>
+      {i === activeCategory && (
+        <span
+          className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current opacity-90"
+          aria-hidden
+        />
+      )}
     </button>
   )
 }
@@ -291,6 +324,11 @@ export function HomePage() {
   const catLen = categories.length
   const categoryLabel = categories[activeCategory] ?? categories[0]
 
+  const gridMovies = useMemo(
+    () => moviesForHomeCategory(activeCategory),
+    [activeCategory]
+  )
+
   return (
     <div id="home-page" className="h-full w-full flex flex-col bg-background overflow-hidden">
       <header className="flex items-center px-tv-2xl py-tv-md z-30 relative">
@@ -344,12 +382,12 @@ export function HomePage() {
 
       <section className="px-tv-2xl mt-tv-lg">
         <div className="grid grid-cols-6 gap-4 pb-4">
-          {movieList.map((movie, i) => (
+          {gridMovies.map((movie, i) => (
             <HomeGridCell
-              key={movie.id}
+              key={`${activeCategory}-${movie.id}`}
               index={i}
               movie={movie}
-              total={movieList.length}
+              total={gridMovies.length}
               activeCategory={activeCategory}
             />
           ))}

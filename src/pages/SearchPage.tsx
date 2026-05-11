@@ -128,7 +128,7 @@ export function SearchPage() {
             className="absolute left-5 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
           <input
-            className="tv-focusable w-full bg-secondary border-none rounded-2xl py-4 pl-14 pr-14 text-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all"
+            className="tv-focusable w-full bg-secondary border-none rounded-2xl py-4 pl-14 pr-14 text-lg text-foreground placeholder:text-muted-foreground focus:outline-none transition-all"
             placeholder="搜索电影、电视剧、综艺、动漫..."
             type="text"
             value={query}

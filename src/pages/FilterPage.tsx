@@ -66,7 +66,7 @@ function FilterSidebarRow({
       type="button"
       {...spatial}
       className={cn(
-        'filter-sidebar-btn tv-focusable tv-focus-yellow w-full flex flex-col items-start gap-0 rounded-md px-2.5 py-1.5 text-left transition-[box-shadow,background-color,color,border-color] duration-150 ease-out',
+        'filter-sidebar-btn tv-focusable w-full flex flex-col items-start gap-0 rounded-md px-2.5 py-1.5 text-left transition-[box-shadow,background-color,color,border-color] duration-150 ease-out',
         activeFilter === fk
           ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'

@@ -44,7 +44,7 @@ function LibraryTabBtn({
       className={cn(
         'tv-focusable tab-focus flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-[box-shadow,transform,colors] duration-150 ease-out',
         active
-          ? 'bg-primary text-primary-foreground'
+          ? 'tv-tab-selected'
           : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
       )}
       onClick={onSelect}

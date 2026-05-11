@@ -1,6 +1,6 @@
 /**
  * Reset scroll so the home hero strip is fully visible.
- * Coalesced to one layout pass per frame burst — avoids jank when focus + scroll fire together.
+ * Coalesced to one rAF — avoids stacking duplicate scroll work when focus returns from the sidebar.
  */
 let scheduled = false
 
@@ -29,9 +29,6 @@ export function scrollHomeHeroIntoView(): void {
 
   requestAnimationFrame(() => {
     apply()
-    requestAnimationFrame(() => {
-      apply()
-      scheduled = false
-    })
+    scheduled = false
   })
 }

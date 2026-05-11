@@ -33,7 +33,11 @@ export function useTvSpatialMainEntry(entryId: string | null) {
   const ctx = useTvSpatialContextOptional()
 
   useEffect(() => {
-    if (!ctx || !entryId) return
+    if (!ctx) return
+    if (entryId == null || entryId === '') {
+      ctx.setMainSpatialEntry(null)
+      return
+    }
     ctx.setMainSpatialEntry(entryId)
     return () => ctx.setMainSpatialEntry(null)
   }, [ctx, entryId])

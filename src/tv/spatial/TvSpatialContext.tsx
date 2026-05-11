@@ -7,6 +7,11 @@ import {
   useRef,
 } from 'react'
 import { applyDetailSpatialScrollAfterFocus } from '@/lib/scrollDetailPane'
+import {
+  isTvFocusLost,
+  queryFocusableSpatial,
+  scrollSpatialFocusIntoView,
+} from '@/tv/spatial/spatialFocus'
 
 export type SpatialDir = 'up' | 'down' | 'left' | 'right'
 
@@ -55,6 +60,15 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
   const getMainSpatialEntry = useCallback(() => mainEntryRef.current, [])
 
   useEffect(() => {
+    const tryRecoverMainEntry = (): boolean => {
+      const entryId = mainEntryRef.current
+      if (!entryId) return false
+      const el = queryFocusableSpatial(entryId)
+      if (!el) return false
+      el.focus({ preventScroll: true })
+      return true
+    }
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (
         e.key !== 'ArrowUp' &&
@@ -65,23 +79,37 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const active = document.activeElement as HTMLElement | null
-      if (!active) return
+      let active = document.activeElement as HTMLElement | null
 
       if (
-        active.tagName === 'INPUT' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'SELECT' ||
-        active.isContentEditable ||
-        active.closest('[data-spatial-arrow-through]')
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable ||
+          active.closest('[data-spatial-arrow-through]'))
       ) {
         return
       }
 
+      // 焦点丢失（body、未连接节点）：拉回当前页注册的主入口，避免方向键被无效逻辑吞掉
+      if (isTvFocusLost(active)) {
+        if (tryRecoverMainEntry()) {
+          e.preventDefault()
+          e.stopPropagation()
+        }
+        return
+      }
+
+      const cur = active as HTMLElement
       const host =
-        (active.closest('[data-spatial-id]') as HTMLElement | null) ??
-        (active.hasAttribute('data-spatial-id') ? active : null)
-      if (!host) return
+        (cur.closest('[data-spatial-id]') as HTMLElement | null) ??
+        (cur.hasAttribute('data-spatial-id') ? cur : null)
+
+      // 非 spatial 控件（如播放器按钮）：不拦截，交给页面自身 keydown
+      if (!host) {
+        return
+      }
 
       const id = host.getAttribute('data-spatial-id')
       if (!id) return
@@ -99,18 +127,14 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
               ? 'left'
               : 'right'
       const nextId = neighbors[dir]
+
+      // 无邻居或目标尚未挂载：不 preventDefault，避免连续吞键造成「卡住后突然连跳」
       if (!nextId || !/^[a-zA-Z0-9_-]+$/.test(nextId)) {
-        e.preventDefault()
-        e.stopPropagation()
         return
       }
 
-      const next = document.querySelector(
-        `[data-spatial-id="${nextId}"]`
-      ) as HTMLElement | null
-      if (!next || typeof next.focus !== 'function') {
-        e.preventDefault()
-        e.stopPropagation()
+      const next = queryFocusableSpatial(nextId)
+      if (!next) {
         return
       }
 
@@ -121,18 +145,11 @@ export function TvSpatialProvider({ children }: { children: React.ReactNode }) {
       const scrollAfter = (): void => {
         const detailHandled = applyDetailSpatialScrollAfterFocus(nextId, next)
         if (!detailHandled) {
-          next.scrollIntoView({
-            block: 'nearest',
-            behavior: 'instant',
-            inline: 'nearest',
-          })
+          scrollSpatialFocusIntoView(next)
         }
       }
 
-      requestAnimationFrame(() => {
-        scrollAfter()
-        requestAnimationFrame(scrollAfter)
-      })
+      requestAnimationFrame(scrollAfter)
     }
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
