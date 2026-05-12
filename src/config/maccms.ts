@@ -23,6 +23,15 @@ export const MACCMS_HOME_GRID_LIMIT = 24
 /** 筛选页单次拉取再本地过滤时的池大小上限（provide 单页最大 100） */
 export const MACCMS_FILTER_FETCH_PAGE_SIZE = 100
 
+/**
+ * 筛选页：每个子分类 `ac=list&t=` 最多翻页数（× pagesize 即该分类最大条数）。
+ * 过大会拖慢首次加载；过小会截断。可按站点片库量在 .env 用 Vite 常量扩展（需改代码接入）或调大此值。
+ */
+export const MACCMS_FILTER_MAX_PAGES_PER_TYPE = 200
+
+/** 筛选页单次 list 请求超时（毫秒），避免 WebView fetch 无限挂起导致一直「加载中」 */
+export const MACCMS_FILTER_LIST_REQ_MS = 28000
+
 /** 开发环境通过 Vite 代理避免浏览器跨域；正式包走完整 Base URL */
 export function maccmsOrigin(): string {
   if (import.meta.env.DEV) return ''

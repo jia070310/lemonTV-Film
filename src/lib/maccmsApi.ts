@@ -1,5 +1,7 @@
 import {
   MACCMS_FILTER_FETCH_PAGE_SIZE,
+  MACCMS_FILTER_LIST_REQ_MS,
+  MACCMS_FILTER_MAX_PAGES_PER_TYPE,
   MACCMS_HERO_RECOMMEND_LEVEL,
   MACCMS_HOME_GRID_LIMIT,
   MACCMS_HOME_HERO_COUNT,
@@ -187,8 +189,9 @@ export async function fetchHomeHeroMovies(
 
 /**
  * 批量拉详情（含完整海报字段），避免首页卡片区整页 videolist 体积过大。
+ * 筛选页等对 `ac=list` 结果补封面时也可复用。
  */
-async function fetchVodRowsByDetailIds(ids: string[]): Promise<Map<string, MaccmsVodRow>> {
+export async function fetchVodRowsByDetailIds(ids: string[]): Promise<Map<string, MaccmsVodRow>> {
   const map = new Map<string, MaccmsVodRow>()
   if (ids.length === 0) return map
   const chunkSize = 18
@@ -285,50 +288,270 @@ function sortFiltered(rows: MaccmsVodRow[], sort: string): MaccmsVodRow[] {
   return next
 }
 
+/**
+ * 列表接口 `ac=list` 常为瘦身字段，缺年份/地区/语言/剧情类时不能硬判为不匹配，
+ * 否则除「类型」外任一筛选都会导致全库被滤成 0 条。
+ * 有值则按条件匹配；无值则跳过该维度（与详情不一致的少量误收可接受）。
+ */
 function rowMatchesFilters(row: MaccmsVodRow, f: MaccmsFilterState): boolean {
   const tid = Number(row.type_id)
   if (!f.typeIds.includes(tid)) return false
-  if (f.year !== '全部' && String(row.vod_year || '').trim() !== f.year) return false
-  if (!areaMatchesFilter(String(row.vod_area || ''), f.area)) return false
-  if (!langMatchesFilter(String(row.vod_lang || ''), f.lang)) return false
-  if (!classMatchesPlot(String(row.vod_class || ''), f.plot)) return false
+
+  if (f.year !== '全部') {
+    const y = String(row.vod_year || '').trim()
+    if (y && y !== f.year) return false
+  }
+
+  if (f.area !== '全部') {
+    const a = String(row.vod_area || '').trim()
+    if (a && !areaMatchesFilter(a, f.area)) return false
+  }
+
+  if (f.lang !== '全部') {
+    const lang = String(row.vod_lang || '').trim()
+    if (lang && !langMatchesFilter(lang, f.lang)) return false
+  }
+
+  if (f.plot !== '全部') {
+    const cls = String(row.vod_class || '').replace(/\s/g, '')
+    if (cls && !classMatchesPlot(cls, f.plot)) return false
+  }
+
   return true
 }
 
-/**
- * 测试阶段：按页从接口拉取 videolist，在客户端做类型/剧情/地区等过滤，再切片分页。
- * 数据量大时请改为服务端条件查询或专用接口。
- */
-export async function fetchFilteredVodPage(
-  f: MaccmsFilterState,
-  page: number,
-  pageSize: number
-): Promise<{ rows: Movie[]; total: number; poolPages: number }> {
-  const need = page * pageSize
-  const pool: MaccmsVodRow[] = []
-  let pg = 1
-  const maxPages = 30
+function withRequestTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms)
+    p.then(
+      (v) => {
+        clearTimeout(t)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(t)
+        reject(e)
+      }
+    )
+  })
+}
 
-  while (pool.length < need + pageSize && pg <= maxPages) {
-    const raw = await fetchProvideVod({
-      ac: 'videolist',
+async function fetchListPageTimed(
+  tid: number,
+  pg: number,
+  pagesize: number
+): Promise<MaccmsProvideListResponse> {
+  return withRequestTimeout(
+    fetchProvideVod({
+      ac: 'list',
+      t: tid,
       pg,
-      pagesize: MACCMS_FILTER_FETCH_PAGE_SIZE,
+      pagesize,
       sort_direction: 'desc',
+    }),
+    MACCMS_FILTER_LIST_REQ_MS
+  )
+}
+
+export type FilterCatalogContinuation = {
+  pool: MaccmsVodRow[]
+  seen: Set<string>
+  exhausted: Map<number, boolean>
+  /** 下一波要请求的 list 页码（各子类同页） */
+  nextPg: number
+  /** 各子类首波接口里 `total` 之和（常见字段；无则保持 0） */
+  apiTotalSum: number
+  totalsCaptured: boolean
+}
+
+export type FilterCatalogPartial = {
+  sorted: MaccmsVodRow[]
+  apiTotalSum: number
+  truncated: boolean
+  exhaustedAll: boolean
+  done: boolean
+}
+
+export function createEmptyFilterContinuation(
+  f: MaccmsFilterState
+): FilterCatalogContinuation {
+  const exhausted = new Map<number, boolean>()
+  for (const tid of f.typeIds) exhausted.set(tid, false)
+  return {
+    pool: [],
+    seen: new Set(),
+    exhausted,
+    nextPg: 1,
+    apiTotalSum: 0,
+    totalsCaptured: false,
+  }
+}
+
+/**
+ * 按波次合并 `ac=list`，本地过滤排序；达到 `targetSortedCount` 后可暂停，用 {@link FilterCatalogContinuation} 续拉。
+ * 首波会为各子类累加接口返回的 `total` 作为条数提示（子类互斥时相加接近 CMS 总量）。
+ */
+export async function advanceFilterCatalog(
+  f: MaccmsFilterState,
+  cont: FilterCatalogContinuation | null,
+  targetSortedCount: number,
+  opts?: {
+    signal?: AbortSignal
+    onPartial?: (p: FilterCatalogPartial) => void
+  }
+): Promise<{
+  continuation: FilterCatalogContinuation
+  sorted: MaccmsVodRow[]
+  apiTotalSum: number
+  truncated: boolean
+  exhaustedAll: boolean
+}> {
+  const state = cont ?? createEmptyFilterContinuation(f)
+  const allow = new Set(f.typeIds)
+  if (allow.size === 0) {
+    const empty = createEmptyFilterContinuation(f)
+    opts?.onPartial?.({
+      sorted: [],
+      apiTotalSum: 0,
+      truncated: false,
+      exhaustedAll: true,
+      done: true,
     })
-    const batch = raw.list ?? []
-    for (const row of batch) {
-      if (rowMatchesFilters(row, f)) pool.push(row)
+    return {
+      continuation: empty,
+      sorted: [],
+      apiTotalSum: 0,
+      truncated: false,
+      exhaustedAll: true,
     }
-    if (batch.length < MACCMS_FILTER_FETCH_PAGE_SIZE) break
-    pg += 1
   }
 
-  const sorted = sortFiltered(pool, f.sort)
-  const total = sorted.length
-  const start = (page - 1) * pageSize
-  const slice = sorted.slice(start, start + pageSize).map(mapVodRowToMovie)
-  return { rows: slice, total, poolPages: pg }
+  const pagesize = MACCMS_FILTER_FETCH_PAGE_SIZE
+  const maxPg = MACCMS_FILTER_MAX_PAGES_PER_TYPE
+  let truncated = false
+  const { pool, seen, exhausted } = state
+
+  const mergeBatch = (batch: MaccmsVodRow[]) => {
+    for (const row of batch) {
+      const tid = Number(row.type_id)
+      if (!allow.has(tid)) continue
+      const id = String(row.vod_id)
+      if (seen.has(id)) continue
+      if (!rowMatchesFilters(row, f)) continue
+      seen.add(id)
+      pool.push(row)
+    }
+  }
+
+  const emit = (done: boolean, exhaustedAllFlag: boolean) => {
+    const sorted = sortFiltered(pool, f.sort)
+    opts?.onPartial?.({
+      sorted,
+      apiTotalSum: state.apiTotalSum,
+      truncated: done ? truncated : false,
+      exhaustedAll: exhaustedAllFlag,
+      done,
+    })
+  }
+
+  const finish = (exhaustedAllFlag: boolean) => {
+    const sorted = sortFiltered(pool, f.sort)
+    emit(true, exhaustedAllFlag)
+    return {
+      continuation: state,
+      sorted,
+      apiTotalSum: state.apiTotalSum,
+      truncated,
+      exhaustedAll: exhaustedAllFlag,
+    }
+  }
+
+  for (let pg = state.nextPg; pg <= maxPg; pg++) {
+    if (opts?.signal?.aborted) {
+      state.nextPg = pg
+      return finish(f.typeIds.every((t) => exhausted.get(t)))
+    }
+
+    const activeTypes = f.typeIds.filter((tid) => !exhausted.get(tid))
+    if (activeTypes.length === 0) {
+      state.nextPg = pg
+      return finish(true)
+    }
+
+    const settled = await Promise.allSettled(
+      activeTypes.map((tid) => fetchListPageTimed(tid, pg, pagesize))
+    )
+
+    if (!state.totalsCaptured) {
+      for (let i = 0; i < activeTypes.length; i++) {
+        const r = settled[i]
+        if (r.status !== 'fulfilled') continue
+        const raw = r.value
+        if (raw.code !== 1) continue
+        const tv = Number(raw.total)
+        if (Number.isFinite(tv) && tv > 0) state.apiTotalSum += tv
+      }
+      state.totalsCaptured = true
+    }
+
+    for (let i = 0; i < activeTypes.length; i++) {
+      const tid = activeTypes[i]
+      const r = settled[i]
+      if (r.status !== 'fulfilled') {
+        exhausted.set(tid, true)
+        continue
+      }
+      const raw = r.value
+      if (raw.code !== 1) {
+        exhausted.set(tid, true)
+        continue
+      }
+      const batch = raw.list ?? []
+      mergeBatch(batch)
+      if (batch.length < pagesize) exhausted.set(tid, true)
+    }
+
+    state.nextPg = pg + 1
+
+    const sorted = sortFiltered(pool, f.sort)
+    emit(false, false)
+
+    if (sorted.length >= targetSortedCount) {
+      return finish(f.typeIds.every((t) => exhausted.get(t)))
+    }
+
+    if (f.typeIds.every((t) => exhausted.get(t))) {
+      return finish(true)
+    }
+  }
+
+  truncated = f.typeIds.some((t) => !exhausted.get(t))
+  return finish(f.typeIds.every((t) => exhausted.get(t)))
+}
+
+/**
+ * 一次拉满（续传直到无更多或达上限）；筛选页优先用 {@link advanceFilterCatalog} 分段加载。
+ */
+export async function fetchFilteredCatalog(
+  f: MaccmsFilterState,
+  opts?: {
+    signal?: AbortSignal
+    onPartial?: (rows: Movie[], info: { truncated: boolean; done: boolean }) => void
+  }
+): Promise<{ rows: Movie[]; total: number; truncated: boolean }> {
+  const r = await advanceFilterCatalog(f, null, Number.MAX_SAFE_INTEGER, {
+    signal: opts?.signal,
+    onPartial: opts?.onPartial
+      ? (p) =>
+          opts.onPartial!(p.sorted.map(mapVodRowToMovie), {
+            truncated: p.truncated,
+            done: p.done,
+          })
+      : undefined,
+  })
+  const rows = r.sorted.map(mapVodRowToMovie)
+  const total = r.apiTotalSum > 0 ? r.apiTotalSum : r.sorted.length
+  return { rows, total, truncated: r.truncated }
 }
 
 export async function fetchVodDetailById(vodId: string): Promise<MaccmsVodRow | null> {

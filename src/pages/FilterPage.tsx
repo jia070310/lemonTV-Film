@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
@@ -15,12 +15,24 @@ import {
   type MaccmsFilterKey,
 } from '@/data/maccmsTaxonomy'
 import type { Movie } from '@/data/mockData'
-import { fetchFilteredVodPage } from '@/lib/maccmsApi'
+import type {
+  FilterCatalogContinuation,
+  MaccmsVodRow,
+} from '@/lib/maccmsApi'
+import {
+  advanceFilterCatalog,
+  fetchVodRowsByDetailIds,
+  mapVodRowToMovie,
+} from '@/lib/maccmsApi'
 import { ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
 
 const FILTER_COLS = 5
 const FILTER_OPT_COLS = 3
 const FILTER_PAGE_SIZE = 20
+/** 首次进入筛选：预合并条数（页） */
+const FILTER_INITIAL_PREFETCH_PAGES = 5
+/** 接近已加载末尾时，每次多合并的页数 */
+const FILTER_CHUNK_PREFETCH_PAGES = 3
 
 /** 与 Layout.tsx 中 navItems 顺序一致：电视剧=1、电影=2、综艺=3、动漫=4 */
 const FILTER_CATEGORY_TO_NAV_INDEX: Record<string, number> = {
@@ -246,18 +258,21 @@ function FilterPgPrev({
   lastRowStart,
   disabled,
   onPrev,
+  firstPagerSpatialId,
 }: {
   lastRowStart: number
   disabled: boolean
   onPrev: () => void
+  /** 当前窗口内第一个页码按钮的 spatial id，例如 filter-pg-3 */
+  firstPagerSpatialId: string
 }) {
   const spatial = useTvSpatialNode(
     'filter-pg-prev',
     () => ({
       up: `filter-grid-${lastRowStart}`,
-      right: 'filter-pg-1',
+      right: firstPagerSpatialId,
     }),
-    [lastRowStart]
+    [lastRowStart, firstPagerSpatialId]
   )
 
   return (
@@ -275,12 +290,17 @@ function FilterPgPrev({
 
 function FilterPgNum({
   page,
+  windowPages,
+  windowIndex,
   currentPage,
   totalPages,
   lastRowStart,
   setPage,
 }: {
   page: number
+  /** 当前分页器上可见的页码（滑动窗口），用于 TV 左右邻接 */
+  windowPages: number[]
+  windowIndex: number
   currentPage: number
   totalPages: number
   lastRowStart: number
@@ -291,19 +311,19 @@ function FilterPgNum({
     () => ({
       up: `filter-grid-${lastRowStart}`,
       left:
-        page === 1
-          ? currentPage > 1
+        windowIndex === 0
+          ? page > 1
             ? 'filter-pg-prev'
             : undefined
-          : `filter-pg-${page - 1}`,
+          : `filter-pg-${windowPages[windowIndex - 1]}`,
       right:
-        page === totalPages
-          ? currentPage < totalPages
+        windowIndex === windowPages.length - 1
+          ? page < totalPages
             ? 'filter-pg-next'
             : undefined
-          : `filter-pg-${page + 1}`,
+          : `filter-pg-${windowPages[windowIndex + 1]}`,
     }),
-    [page, totalPages, lastRowStart, currentPage]
+    [page, totalPages, lastRowStart, currentPage, windowPages, windowIndex]
   )
 
   return (
@@ -325,22 +345,22 @@ function FilterPgNum({
 
 function FilterPgNext({
   lastRowStart,
-  totalPages,
   disabled,
   onNext,
+  lastPagerSpatialId,
 }: {
   lastRowStart: number
-  totalPages: number
   disabled: boolean
   onNext: () => void
+  lastPagerSpatialId: string
 }) {
   const spatial = useTvSpatialNode(
     'filter-pg-next',
     () => ({
       up: `filter-grid-${lastRowStart}`,
-      left: `filter-pg-${totalPages}`,
+      left: lastPagerSpatialId,
     }),
-    [lastRowStart, totalPages]
+    [lastRowStart, lastPagerSpatialId]
   )
 
   return (
@@ -389,10 +409,16 @@ export function FilterPage() {
   const [filters, setFilters] = useState<Record<MaccmsFilterKey, string>>(defaultFilters)
   const [activeFilter, setActiveFilter] = useState<MaccmsFilterKey | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [listMovies, setListMovies] = useState<Movie[]>([])
-  const [matchTotal, setMatchTotal] = useState(0)
+  const [catalogRows, setCatalogRows] = useState<MaccmsVodRow[]>([])
+  const [displayTotal, setDisplayTotal] = useState(0)
+  const [catalogTruncated, setCatalogTruncated] = useState(false)
+  const [catalogExhausted, setCatalogExhausted] = useState(false)
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
+  const loadReqGen = useRef(0)
+  const filterContRef = useRef<FilterCatalogContinuation | null>(null)
+  /** `ac=list` 常无封面，用 `ac=detail` 按当前可见条补全后叠加上去 */
+  const [detailOverlay, setDetailOverlay] = useState<Record<string, Movie>>({})
 
   useEffect(() => {
     setFilters(defaultFilters)
@@ -400,49 +426,83 @@ export function FilterPage() {
   }, [homeCat, defaultFilters])
 
   useEffect(() => {
-    let cancelled = false
+    const id = ++loadReqGen.current
+    const ac = new AbortController()
     setListLoading(true)
     setListError(null)
+    setDetailOverlay({})
+    filterContRef.current = null
+    setCatalogRows([])
+    setDisplayTotal(0)
+    setCatalogExhausted(false)
+    setCatalogTruncated(false)
+
     const typeIds =
       filters.type === '全部'
         ? getHomeListQueryTypeIds(homeCat)
         : FILTER_TYPE_TO_IDS[homeCat][filters.type] ??
           FILTER_TYPE_TO_IDS[homeCat]['全部']
+
+    const f = {
+      homeCategory: homeCat,
+      typeLabel: filters.type,
+      plot: filters.plot,
+      area: filters.area,
+      lang: filters.lang,
+      year: filters.year,
+      sort: filters.sort,
+      typeIds,
+    }
+
     ;(async () => {
       try {
-        const { rows, total } = await fetchFilteredVodPage(
-          {
-            homeCategory: homeCat,
-            typeLabel: filters.type,
-            plot: filters.plot,
-            area: filters.area,
-            lang: filters.lang,
-            year: filters.year,
-            sort: filters.sort,
-            typeIds,
+        const initTarget = FILTER_INITIAL_PREFETCH_PAGES * FILTER_PAGE_SIZE
+        const r = await advanceFilterCatalog(f, null, initTarget, {
+          signal: ac.signal,
+          onPartial: (p) => {
+            if (loadReqGen.current !== id) return
+            setCatalogRows(p.sorted)
+            if (p.apiTotalSum > 0) setDisplayTotal(p.apiTotalSum)
+            if (p.sorted.length > 0 || p.done) setListLoading(false)
+            if (p.done) {
+              setCatalogTruncated(p.truncated)
+              setCatalogExhausted(p.exhaustedAll)
+              if (p.apiTotalSum <= 0) setDisplayTotal(p.sorted.length)
+              else if (p.exhaustedAll) {
+                setDisplayTotal((d) => (d > p.sorted.length ? p.sorted.length : d))
+              }
+            }
           },
-          currentPage,
-          FILTER_PAGE_SIZE
-        )
-        if (cancelled) return
-        setListMovies(rows)
-        setMatchTotal(total)
-      } catch (e) {
-        if (!cancelled) {
-          setListMovies([])
-          setMatchTotal(0)
-          setListError(e instanceof Error ? e.message : '加载失败')
+        })
+        if (loadReqGen.current !== id) return
+        filterContRef.current = r.continuation
+        setCatalogRows(r.sorted)
+        if (r.apiTotalSum > 0) setDisplayTotal(r.apiTotalSum)
+        else setDisplayTotal(r.sorted.length)
+        if (r.exhaustedAll) {
+          setDisplayTotal((d) =>
+            d <= 0 ? r.sorted.length : Math.min(d, r.sorted.length)
+          )
         }
+        setCatalogTruncated(r.truncated)
+        setCatalogExhausted(r.exhaustedAll)
+      } catch (e) {
+        if (loadReqGen.current !== id) return
+        filterContRef.current = null
+        setCatalogRows([])
+        setDisplayTotal(0)
+        setCatalogTruncated(false)
+        setCatalogExhausted(true)
+        setListError(e instanceof Error ? e.message : '加载失败')
       } finally {
-        if (!cancelled) setListLoading(false)
+        if (loadReqGen.current === id) setListLoading(false)
       }
     })()
     return () => {
-      cancelled = true
+      ac.abort()
     }
   }, [
     homeCat,
-    currentPage,
     filters.type,
     filters.plot,
     filters.area,
@@ -451,13 +511,170 @@ export function FilterPage() {
     filters.sort,
   ])
 
+  const catalogMovies = useMemo(
+    () => catalogRows.map(mapVodRowToMovie),
+    [catalogRows]
+  )
+
+  const statsTotal = useMemo(() => {
+    if (displayTotal > 0) return displayTotal
+    return catalogRows.length
+  }, [displayTotal, catalogRows.length])
+
+  const detailFetchKey = useMemo(() => {
+    const start = (currentPage - 1) * FILTER_PAGE_SIZE
+    const slice = catalogMovies.slice(start, start + FILTER_PAGE_SIZE * 2)
+    return `${currentPage}:${slice.map(m => m.id).join(',')}`
+  }, [catalogMovies, currentPage])
+
+  useEffect(() => {
+    const idx = detailFetchKey.indexOf(':')
+    const idsPart = idx >= 0 ? detailFetchKey.slice(idx + 1) : ''
+    const ids = [...new Set(idsPart.split(',').filter(Boolean))]
+    if (ids.length === 0) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const map = await fetchVodRowsByDetailIds(ids)
+        if (cancelled) return
+        setDetailOverlay((prev) => {
+          const next = { ...prev }
+          for (const id of ids) {
+            const row = map.get(id)
+            if (row) next[id] = mapVodRowToMovie(row)
+          }
+          return next
+        })
+      } catch {
+        /* 忽略详情失败 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [detailFetchKey])
+
+  useEffect(() => {
+    const id = loadReqGen.current
+    if (listLoading) return
+    const loaded = catalogRows.length
+    if (loaded === 0) return
+
+    const cap = displayTotal > 0 ? displayTotal : Number.MAX_SAFE_INTEGER
+    if (catalogExhausted && loaded >= cap) return
+
+    const loadedPages = Math.max(1, Math.ceil(loaded / FILTER_PAGE_SIZE))
+    const needRows = currentPage * FILTER_PAGE_SIZE
+    const nearBoundary = currentPage >= loadedPages - 1
+    const needFill = needRows > loaded && !catalogExhausted
+
+    if (!nearBoundary && !needFill) return
+
+    const target = Math.min(
+      cap,
+      Math.max(
+        needRows,
+        loaded + FILTER_CHUNK_PREFETCH_PAGES * FILTER_PAGE_SIZE
+      )
+    )
+    if (target <= loaded) return
+
+    const typeIds =
+      filters.type === '全部'
+        ? getHomeListQueryTypeIds(homeCat)
+        : FILTER_TYPE_TO_IDS[homeCat][filters.type] ??
+          FILTER_TYPE_TO_IDS[homeCat]['全部']
+
+    const f = {
+      homeCategory: homeCat,
+      typeLabel: filters.type,
+      plot: filters.plot,
+      area: filters.area,
+      lang: filters.lang,
+      year: filters.year,
+      sort: filters.sort,
+      typeIds,
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await advanceFilterCatalog(f, filterContRef.current, target, {
+          onPartial: (p) => {
+            if (loadReqGen.current !== id || cancelled) return
+            setCatalogRows(p.sorted)
+            if (p.apiTotalSum > 0) setDisplayTotal(p.apiTotalSum)
+          },
+        })
+        if (loadReqGen.current !== id || cancelled) return
+        filterContRef.current = r.continuation
+        setCatalogRows(r.sorted)
+        setCatalogTruncated(r.truncated)
+        setCatalogExhausted(r.exhaustedAll)
+        if (r.exhaustedAll) {
+          setDisplayTotal((d) =>
+            d <= 0 ? r.sorted.length : Math.min(d, r.sorted.length)
+          )
+        }
+      } catch {
+        /* 续载失败忽略 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    listLoading,
+    currentPage,
+    catalogRows.length,
+    displayTotal,
+    catalogExhausted,
+    homeCat,
+    filters.type,
+    filters.plot,
+    filters.area,
+    filters.lang,
+    filters.year,
+    filters.sort,
+  ])
+
+  useEffect(() => {
+    const tp = Math.max(1, Math.ceil(statsTotal / FILTER_PAGE_SIZE))
+    if (currentPage > tp) setCurrentPage(tp)
+  }, [statsTotal, currentPage])
+
+  const listMovies = useMemo(() => {
+    const start = (currentPage - 1) * FILTER_PAGE_SIZE
+    return catalogMovies.slice(start, start + FILTER_PAGE_SIZE).map((m) => {
+      const o = detailOverlay[m.id]
+      return o ? { ...m, ...o } : m
+    })
+  }, [catalogMovies, currentPage, detailOverlay])
+
   const total = listMovies.length
-  const totalPages = Math.max(1, Math.ceil(matchTotal / FILTER_PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(statsTotal / FILTER_PAGE_SIZE))
+
+  const FILTER_PAGER_WINDOW = 9
+  const pagerPages = useMemo(() => {
+    const n = totalPages
+    if (n <= FILTER_PAGER_WINDOW) {
+      return Array.from({ length: n }, (_, i) => i + 1)
+    }
+    let lo = Math.max(1, currentPage - Math.floor(FILTER_PAGER_WINDOW / 2))
+    let hi = Math.min(n, lo + FILTER_PAGER_WINDOW - 1)
+    lo = Math.max(1, hi - FILTER_PAGER_WINDOW + 1)
+    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i)
+  }, [totalPages, currentPage])
+
+  const firstPagerSpatialId = `filter-pg-${pagerPages[0]}`
+  const lastPagerSpatialId = `filter-pg-${pagerPages[pagerPages.length - 1]}`
+
   const lastRowStart = total > 0 ? Math.floor((total - 1) / FILTER_COLS) * FILTER_COLS : 0
 
-  /** 禁用按钮无法聚焦：第 1 页时「上一页」不可用，网格下移须落到页码 1 */
+  /** 禁用按钮无法聚焦：第 1 页时「上一页」不可用，网格下移须落到当前窗口首个页码 */
   const gridFooterDownId =
-    currentPage > 1 ? 'filter-pg-prev' : 'filter-pg-1'
+    currentPage > 1 ? 'filter-pg-prev' : firstPagerSpatialId
 
   const mainEntry =
     activeFilter != null ? `filter-opt-${activeFilter}-0` : 'filter-sb-0'
@@ -609,7 +826,7 @@ export function FilterPage() {
                 ? '加载中…'
                 : listError
                   ? listError
-                  : `约 ${matchTotal} 条（当前检索深度内）`}
+                  : `共 ${statsTotal} 条${catalogTruncated ? '（部分分类已达拉取页数上限）' : ''}`}
             </span>
           </div>
         </header>
@@ -626,18 +843,21 @@ export function FilterPage() {
           ))}
         </div>
 
-        {matchTotal > 0 && (
+        {statsTotal > 0 && (
           <div className="flex flex-col items-center gap-4 pb-16">
             <div className="flex items-center gap-3">
               <FilterPgPrev
                 lastRowStart={lastRowStart}
                 disabled={currentPage === 1}
+                firstPagerSpatialId={firstPagerSpatialId}
                 onPrev={() => setCurrentPage(p => Math.max(1, p - 1))}
               />
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              {pagerPages.map((page, idx) => (
                 <FilterPgNum
                   key={page}
                   page={page}
+                  windowPages={pagerPages}
+                  windowIndex={idx}
                   currentPage={currentPage}
                   totalPages={totalPages}
                   lastRowStart={lastRowStart}
@@ -646,8 +866,8 @@ export function FilterPage() {
               ))}
               <FilterPgNext
                 lastRowStart={lastRowStart}
-                totalPages={totalPages}
                 disabled={currentPage === totalPages}
+                lastPagerSpatialId={lastPagerSpatialId}
                 onNext={() =>
                   setCurrentPage(p => Math.min(totalPages, p + 1))
                 }
