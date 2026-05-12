@@ -276,6 +276,18 @@ export type MaccmsFilterState = {
   typeIds: number[]
 }
 
+/**
+ * 苹果 CMS 官方 `api.php/provide/vod` 的 `ac=list` 在 SQL 里只认 `year`（及 t/wd 等），
+ * **不认** `class` / `area` / `lang`，接口返回的 `total` 仍是「仅按分类 t」的全量，不能代表剧情/地区/语言筛选后的条数。
+ * 此时「共 N 条」应以本地合并 + 详情补全后严格筛选得到的 {@link advanceFilterCatalog} 结果长度为准
+ * （随预加载增加，各 list 页拉尽后与真实可展示条数一致）。
+ */
+export function filterListTotalUsesClientCount(
+  f: Pick<MaccmsFilterState, 'plot' | 'area' | 'lang'>
+): boolean {
+  return f.plot !== '全部' || f.area !== '全部' || f.lang !== '全部'
+}
+
 function sortFiltered(rows: MaccmsVodRow[], sort: string): MaccmsVodRow[] {
   const next = [...rows]
   if (sort === '人气排序') {
@@ -286,6 +298,36 @@ function sortFiltered(rows: MaccmsVodRow[], sort: string): MaccmsVodRow[] {
     next.sort((a, b) => vodTimeToMs(b.vod_time) - vodTimeToMs(a.vod_time))
   }
   return next
+}
+
+/**
+ * 列表合并阶段：在需详情补全前仅按 `type_id` 入池；否则用宽松匹配（列表缺字段时不误杀）。
+ */
+function needsFilterDetailEnrichment(f: MaccmsFilterState): boolean {
+  return (
+    f.plot !== '全部' ||
+    f.area !== '全部' ||
+    f.lang !== '全部' ||
+    f.year !== '全部'
+  )
+}
+
+function rowMatchesFiltersListMerge(row: MaccmsVodRow, f: MaccmsFilterState): boolean {
+  if (needsFilterDetailEnrichment(f)) {
+    return f.typeIds.includes(Number(row.type_id))
+  }
+  return rowMatchesFilters(row, f)
+}
+
+/** 详情补全后：各维度严格匹配（用于剧情/地区等筛选） */
+function rowMatchesFiltersStrict(row: MaccmsVodRow, f: MaccmsFilterState): boolean {
+  const tid = Number(row.type_id)
+  if (!f.typeIds.includes(tid)) return false
+  if (f.year !== '全部' && String(row.vod_year || '').trim() !== f.year) return false
+  if (!areaMatchesFilter(String(row.vod_area || ''), f.area)) return false
+  if (!langMatchesFilter(String(row.vod_lang || ''), f.lang)) return false
+  if (!classMatchesPlot(String(row.vod_class || ''), f.plot)) return false
+  return true
 }
 
 /**
@@ -336,19 +378,91 @@ function withRequestTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+function mergeListRowWithDetail(base: MaccmsVodRow, d: MaccmsVodRow): MaccmsVodRow {
+  return {
+    ...base,
+    vod_class: d.vod_class ?? base.vod_class,
+    vod_area: d.vod_area ?? base.vod_area,
+    vod_lang: d.vod_lang ?? base.vod_lang,
+    vod_year: d.vod_year ?? base.vod_year,
+    vod_hits: d.vod_hits ?? base.vod_hits,
+    vod_score: d.vod_score ?? base.vod_score,
+    vod_tag: d.vod_tag ?? base.vod_tag,
+    vod_remarks: d.vod_remarks ?? base.vod_remarks,
+    vod_pic: d.vod_pic ?? base.vod_pic,
+    vod_pic_thumb: d.vod_pic_thumb ?? base.vod_pic_thumb,
+    vod_pic_slide: d.vod_pic_slide ?? base.vod_pic_slide,
+  }
+}
+
+/**
+ * 对池中缺字段的条目拉 `ac=detail` 合并后再严格过滤（剧情/地区等）。
+ */
+async function enrichPoolRowsThenStrictPrune(
+  pool: MaccmsVodRow[],
+  f: MaccmsFilterState,
+  signal?: AbortSignal
+): Promise<void> {
+  const need = new Set<string>()
+  for (const r of pool) {
+    const id = String(r.vod_id)
+    if (f.plot !== '全部' && !String(r.vod_class || '').trim()) need.add(id)
+    if (f.area !== '全部' && !String(r.vod_area || '').trim()) need.add(id)
+    if (f.lang !== '全部' && !String(r.vod_lang || '').trim()) need.add(id)
+    if (f.year !== '全部' && !String(r.vod_year || '').trim()) need.add(id)
+  }
+  const ids = [...need]
+  const chunkSize = 20
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    if (signal?.aborted) return
+    const chunk = ids.slice(i, i + chunkSize)
+    const map = await fetchVodRowsByDetailIds(chunk)
+    for (const id of chunk) {
+      const full = map.get(id)
+      if (!full) continue
+      for (let j = 0; j < pool.length; j++) {
+        if (String(pool[j].vod_id) !== id) continue
+        pool[j] = mergeListRowWithDetail(pool[j], full)
+        break
+      }
+    }
+  }
+  const kept = pool.filter((r) => rowMatchesFiltersStrict(r, f))
+  pool.splice(0, pool.length, ...kept)
+}
+
+/**
+ * 苹果 CMS 采集/同步接口 `ac=list` 常支持 class/area/lang/year，与后台筛选一致；
+ * 传入后响应里的 `total` 即为「当前筛选条件下」的总条数，可与仅按类型筛选时同样用于展示。
+ */
+function buildProvideVodListParams(
+  tid: number,
+  pg: number,
+  pagesize: number,
+  f: MaccmsFilterState
+): Record<string, string | number> {
+  const params: Record<string, string | number> = {
+    ac: 'list',
+    t: tid,
+    pg,
+    pagesize,
+    sort_direction: 'desc',
+  }
+  if (f.plot !== '全部') params.class = f.plot
+  if (f.area !== '全部') params.area = f.area
+  if (f.lang !== '全部') params.lang = f.lang
+  if (f.year !== '全部') params.year = f.year
+  return params
+}
+
 async function fetchListPageTimed(
   tid: number,
   pg: number,
-  pagesize: number
+  pagesize: number,
+  f: MaccmsFilterState
 ): Promise<MaccmsProvideListResponse> {
   return withRequestTimeout(
-    fetchProvideVod({
-      ac: 'list',
-      t: tid,
-      pg,
-      pagesize,
-      sort_direction: 'desc',
-    }),
+    fetchProvideVod(buildProvideVodListParams(tid, pg, pagesize, f)),
     MACCMS_FILTER_LIST_REQ_MS
   )
 }
@@ -437,17 +551,24 @@ export async function advanceFilterCatalog(
       if (!allow.has(tid)) continue
       const id = String(row.vod_id)
       if (seen.has(id)) continue
-      if (!rowMatchesFilters(row, f)) continue
+      if (!rowMatchesFiltersListMerge(row, f)) continue
       seen.add(id)
       pool.push(row)
     }
   }
 
+  const totalForUi = (sortedLen: number) =>
+    filterListTotalUsesClientCount(f)
+      ? sortedLen
+      : state.apiTotalSum > 0
+        ? state.apiTotalSum
+        : sortedLen
+
   const emit = (done: boolean, exhaustedAllFlag: boolean) => {
     const sorted = sortFiltered(pool, f.sort)
     opts?.onPartial?.({
       sorted,
-      apiTotalSum: state.apiTotalSum,
+      apiTotalSum: totalForUi(sorted.length),
       truncated: done ? truncated : false,
       exhaustedAll: exhaustedAllFlag,
       done,
@@ -460,7 +581,7 @@ export async function advanceFilterCatalog(
     return {
       continuation: state,
       sorted,
-      apiTotalSum: state.apiTotalSum,
+      apiTotalSum: totalForUi(sorted.length),
       truncated,
       exhaustedAll: exhaustedAllFlag,
     }
@@ -479,17 +600,19 @@ export async function advanceFilterCatalog(
     }
 
     const settled = await Promise.allSettled(
-      activeTypes.map((tid) => fetchListPageTimed(tid, pg, pagesize))
+      activeTypes.map((tid) => fetchListPageTimed(tid, pg, pagesize, f))
     )
 
     if (!state.totalsCaptured) {
-      for (let i = 0; i < activeTypes.length; i++) {
-        const r = settled[i]
-        if (r.status !== 'fulfilled') continue
-        const raw = r.value
-        if (raw.code !== 1) continue
-        const tv = Number(raw.total)
-        if (Number.isFinite(tv) && tv > 0) state.apiTotalSum += tv
+      if (!filterListTotalUsesClientCount(f)) {
+        for (let i = 0; i < activeTypes.length; i++) {
+          const r = settled[i]
+          if (r.status !== 'fulfilled') continue
+          const raw = r.value
+          if (raw.code !== 1) continue
+          const tv = Number(raw.total)
+          if (Number.isFinite(tv) && tv > 0) state.apiTotalSum += tv
+        }
       }
       state.totalsCaptured = true
     }
@@ -509,6 +632,10 @@ export async function advanceFilterCatalog(
       const batch = raw.list ?? []
       mergeBatch(batch)
       if (batch.length < pagesize) exhausted.set(tid, true)
+    }
+
+    if (needsFilterDetailEnrichment(f)) {
+      await enrichPoolRowsThenStrictPrune(pool, f, opts?.signal)
     }
 
     state.nextPg = pg + 1
@@ -550,7 +677,8 @@ export async function fetchFilteredCatalog(
       : undefined,
   })
   const rows = r.sorted.map(mapVodRowToMovie)
-  const total = r.apiTotalSum > 0 ? r.apiTotalSum : r.sorted.length
+  const total =
+    r.apiTotalSum > 0 ? r.apiTotalSum : r.sorted.length
   return { rows, total, truncated: r.truncated }
 }
 

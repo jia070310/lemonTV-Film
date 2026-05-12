@@ -22,6 +22,7 @@ import type {
 import {
   advanceFilterCatalog,
   fetchVodRowsByDetailIds,
+  filterListTotalUsesClientCount,
   mapVodRowToMovie,
 } from '@/lib/maccmsApi'
 import { ChevronLeft, ChevronRight, Info, X } from 'lucide-react'
@@ -420,6 +421,17 @@ export function FilterPage() {
   /** `ac=list` 常无封面，用 `ac=detail` 按当前可见条补全后叠加上去 */
   const [detailOverlay, setDetailOverlay] = useState<Record<string, Movie>>({})
 
+  /** 剧情/地区/语言：官方采集接口不把这三项计入 SQL，`total` 不可用，条数随本地筛选结果走 */
+  const listTotalUsesClientFilter = useMemo(
+    () =>
+      filterListTotalUsesClientCount({
+        plot: filters.plot,
+        area: filters.area,
+        lang: filters.lang,
+      }),
+    [filters.plot, filters.area, filters.lang]
+  )
+
   useEffect(() => {
     setFilters(defaultFilters)
     setCurrentPage(1)
@@ -561,7 +573,11 @@ export function FilterPage() {
     const loaded = catalogRows.length
     if (loaded === 0) return
 
-    const cap = displayTotal > 0 ? displayTotal : Number.MAX_SAFE_INTEGER
+    const cap = listTotalUsesClientFilter
+      ? Number.MAX_SAFE_INTEGER
+      : displayTotal > 0
+        ? displayTotal
+        : Number.MAX_SAFE_INTEGER
     if (catalogExhausted && loaded >= cap) return
 
     const loadedPages = Math.max(1, Math.ceil(loaded / FILTER_PAGE_SIZE))
@@ -637,6 +653,7 @@ export function FilterPage() {
     filters.lang,
     filters.year,
     filters.sort,
+    listTotalUsesClientFilter,
   ])
 
   useEffect(() => {
@@ -818,7 +835,8 @@ export function FilterPage() {
           </h2>
           <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
             <span>
-              {filters.type} · {filters.year} · {filters.area}
+              {filters.type} · {filters.plot} · {filters.area} · {filters.lang} ·{' '}
+              {filters.year} · {filters.sort}
             </span>
             <span>/</span>
             <span>
@@ -826,7 +844,13 @@ export function FilterPage() {
                 ? '加载中…'
                 : listError
                   ? listError
-                  : `共 ${statsTotal} 条${catalogTruncated ? '（部分分类已达拉取页数上限）' : ''}`}
+                  : `共 ${statsTotal} 条${
+                      catalogTruncated
+                        ? '（部分分类已达拉取页数上限）'
+                        : listTotalUsesClientFilter && !catalogExhausted
+                          ? '（已加载，翻页将继续合并）'
+                          : ''
+                    }`}
             </span>
           </div>
         </header>
