@@ -10,6 +10,7 @@ import {
   MACCMS_FILTER_KEYS,
   getFilterLabels,
   getFilterOptionsForCategory,
+  getHomeListQueryTypeIds,
   parseHomeCategory,
   type MaccmsFilterKey,
 } from '@/data/maccmsTaxonomy'
@@ -403,8 +404,10 @@ export function FilterPage() {
     setListLoading(true)
     setListError(null)
     const typeIds =
-      FILTER_TYPE_TO_IDS[homeCat][filters.type] ??
-      FILTER_TYPE_TO_IDS[homeCat]['全部']
+      filters.type === '全部'
+        ? getHomeListQueryTypeIds(homeCat)
+        : FILTER_TYPE_TO_IDS[homeCat][filters.type] ??
+          FILTER_TYPE_TO_IDS[homeCat]['全部']
     ;(async () => {
       try {
         const { rows, total } = await fetchFilteredVodPage(

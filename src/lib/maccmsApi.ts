@@ -8,7 +8,12 @@ import {
 } from '@/config/maccms'
 import { maccmsRequestJson } from '@/lib/maccmsHttp'
 import type { HomeNavCategory } from '@/data/maccmsTaxonomy'
-import { TYPE_IDS_BY_HOME_CATEGORY, areaMatchesFilter, classMatchesPlot, langMatchesFilter } from '@/data/maccmsTaxonomy'
+import {
+  getHomeListQueryTypeIds,
+  areaMatchesFilter,
+  classMatchesPlot,
+  langMatchesFilter,
+} from '@/data/maccmsTaxonomy'
 import type { Movie } from '@/data/mockData'
 
 export type MaccmsProvideListResponse = {
@@ -202,40 +207,55 @@ async function fetchVodRowsByDetailIds(ids: string[]): Promise<Map<string, Maccm
 }
 
 /**
- * 首页卡片区：`ac=list` 轻量分页筛出当前分类最新若干条（不按推荐），
- * 再对最终条目的 `vod_id` 调用 `ac=detail&ids=` 补全海报/略缩图，避免列表接口图字段异常或 WebView 加载失败后被统一替换成同一张占位图。
+ * 首页卡片区：按当前主类下各子类 `type_id` 分别请求 `ac=list&t=子类ID`（与 CMS 一致），
+ * 合并去重后按 `vod_time` 取最新若干条；避免「全站 list 前几页全是电影/电视剧」导致综艺等永远筛不到。
+ * 再对 `vod_id` 批量 `ac=detail` 补全海报。
  */
 export async function fetchHomeLatestForCategory(cat: HomeNavCategory): Promise<Movie[]> {
-  const allow = new Set(TYPE_IDS_BY_HOME_CATEGORY[cat])
-  const out: MaccmsVodRow[] = []
-  const seen = new Set<string>()
-  let pg = 1
-  const pagesize = 100
-  const maxPages = 40
+  const typeIds = getHomeListQueryTypeIds(cat)
+  const allow = new Set(typeIds)
+  const limit = MACCMS_HOME_GRID_LIMIT
+  const pagesize = Math.min(
+    100,
+    Math.max(limit, Math.ceil(limit / Math.max(1, typeIds.length)) + 8)
+  )
 
-  while (out.length < MACCMS_HOME_GRID_LIMIT && pg <= maxPages) {
-    const raw = await fetchProvideVod({
-      ac: 'list',
-      pg,
-      pagesize,
-      sort_direction: 'desc',
+  const seen = new Set<string>()
+  const pool: MaccmsVodRow[] = []
+
+  const lists = await Promise.all(
+    typeIds.map(async (tid) => {
+      try {
+        const raw = await fetchProvideVod({
+          ac: 'list',
+          t: tid,
+          pg: 1,
+          pagesize,
+          sort_direction: 'desc',
+        })
+        return raw.list ?? []
+      } catch {
+        return []
+      }
     })
-    const list = raw.list ?? []
+  )
+
+  for (const list of lists) {
     for (const r of list) {
       if (!allow.has(Number(r.type_id))) continue
       const id = String(r.vod_id)
       if (seen.has(id)) continue
       seen.add(id)
-      out.push(r)
-      if (out.length >= MACCMS_HOME_GRID_LIMIT) break
+      pool.push(r)
     }
-    if (list.length < pagesize) break
-    pg += 1
   }
 
-  const ids = out.map(r => String(r.vod_id))
+  pool.sort((a, b) => vodTimeToMs(b.vod_time) - vodTimeToMs(a.vod_time))
+  const out = pool.slice(0, limit)
+
+  const ids = out.map((r) => String(r.vod_id))
   const detailMap = await fetchVodRowsByDetailIds(ids)
-  return out.map(r => {
+  return out.map((r) => {
     const full = detailMap.get(String(r.vod_id))
     return mapVodRowToMovie(full ?? r)
   })

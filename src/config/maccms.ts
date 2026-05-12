@@ -14,6 +14,12 @@ export const MACCMS_HOME_HERO_COUNT = 5
 
 export const MACCMS_HOME_GRID_LIMIT = 24
 
+/**
+ * 首页某主类（如综艺）长期无数据：多为 CMS 子分类 `type_id` 与内置表不一致。
+ * 在 `.env` 用逗号分隔覆盖，例如 `VITE_MACCMS_HOME_IDS_VARIETY=32,33`（与后台「视频 → 分类」ID 一致）。
+ * 详见 `src/data/maccmsTaxonomy.ts` 的 `getHomeGridTypeIds`。
+ */
+
 /** 筛选页单次拉取再本地过滤时的池大小上限（provide 单页最大 100） */
 export const MACCMS_FILTER_FETCH_PAGE_SIZE = 100
 

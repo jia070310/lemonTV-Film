@@ -11,6 +11,7 @@ import {
   mapVodRowToMovie,
   parsePlaySources,
 } from '@/lib/maccmsApi'
+import { isFavorite, LIBRARY_CHANGED_EVENT, toggleFavorite } from '@/lib/userLibraryStorage'
 import {
   ArrowLeft,
   Play,
@@ -358,6 +359,7 @@ export function DetailPage() {
   const [relatedMovies, setRelatedMovies] = useState<Movie[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [synopsisExpandable, setSynopsisExpandable] = useState(false)
+  const [favorited, setFavorited] = useState(false)
 
   const onSynopsisExpandableChange = useCallback((v: boolean) => {
     setSynopsisExpandable(v)
@@ -381,7 +383,9 @@ export function DetailPage() {
           return
         }
         const base = mapVodRowToMovie(row)
-        setMovie(enrichMovieFromDetailRow(base, row))
+        const enriched = enrichMovieFromDetailRow(base, row)
+        setMovie(enriched)
+        setFavorited(isFavorite(enriched.id))
         const bundles = parsePlaySources(row)
         setPlayBundles(
           bundles.length > 0
@@ -447,6 +451,17 @@ export function DetailPage() {
     relatedLen > 0 ? `detail-rel-${relatedLen - 1}` : 'detail-back'
   /** 无推荐卡时从返回/大播放按下落到立即播放 */
   const relatedFirstDownId = relatedLen > 0 ? 'detail-rel-0' : 'detail-playbtn'
+
+  useEffect(() => {
+    if (!movie) {
+      setFavorited(false)
+      return
+    }
+    setFavorited(isFavorite(movie.id))
+    const onLib = () => setFavorited(isFavorite(movie.id))
+    window.addEventListener(LIBRARY_CHANGED_EVENT, onLib)
+    return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, onLib)
+  }, [movie])
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -584,7 +599,10 @@ export function DetailPage() {
 
             <div className="absolute bottom-6 left-6 text-foreground">
               <p className="text-sm text-muted-foreground">
-                正在播放: 第 {selectedEpisode} 集
+                正在播放:{' '}
+                <span className="inline-flex rounded-md bg-white/50 px-2 py-0.5 text-sm font-medium text-yellow-400 shadow-sm backdrop-blur-sm">
+                  更新至 {selectedEpisode} 集
+                </span>
               </p>
             </div>
           </div>
@@ -653,9 +671,21 @@ export function DetailPage() {
             <button
               type="button"
               {...spatialFav}
-              className="tv-focusable pill-focus px-6 py-2.5 rounded-full bg-secondary text-secondary-foreground font-medium text-sm"
+              className={cn(
+                'tv-focusable pill-focus px-6 py-2.5 rounded-full font-medium text-sm',
+                favorited
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-secondary text-secondary-foreground'
+              )}
+              onClick={() => setFavorited(toggleFavorite(movie))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  setFavorited(toggleFavorite(movie))
+                }
+              }}
             >
-              收藏
+              {favorited ? '已收藏' : '收藏'}
             </button>
           </div>
 

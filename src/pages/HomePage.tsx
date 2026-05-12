@@ -12,6 +12,8 @@ import type { HomeNavCategory } from '@/data/maccmsTaxonomy'
 import { MACCMS_HERO_RECOMMEND_LEVEL, MACCMS_HOME_HERO_COUNT } from '@/config/maccms'
 import { fetchHomeHeroMovies, fetchHomeLatestForCategory } from '@/lib/maccmsApi'
 import {
+  homeGridListEqual,
+  homeHeroStripEqual,
   readGridSessionCache,
   readHeroSessionCache,
   writeGridSessionCache,
@@ -106,15 +108,10 @@ function HomeHeroTile({
             {movie.description}
           </p>
           <div className="flex flex-wrap items-center gap-3">
-            {movie.rating > 0 ? (
-              <span className="text-sm font-bold text-primary">{movie.rating} 分</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">暂无评分</span>
-            )}
             <span className="text-xs text-muted-foreground">{movie.year}</span>
             <span className="text-xs text-muted-foreground">{movie.genre}</span>
             {movie.tag && (
-              <span className="rounded-full px-2 py-0.5 text-xs tv-tab-selected">
+              <span className="rounded-full bg-white/50 px-2 py-0.5 text-xs font-medium text-yellow-400 shadow-sm backdrop-blur-sm">
                 {movie.tag}
               </span>
             )}
@@ -362,42 +359,37 @@ export function HomePage() {
   const [heroMovies, setHeroMovies] = useState<Movie[]>(
     () => readHeroSessionCache() ?? []
   )
-  const [heroReady, setHeroReady] = useState(() => readHeroSessionCache() !== null)
+  /** 首次海报请求结束后，才区分「接口确实无数据」与「尚在静默拉取」 */
+  const [heroFetchSettled, setHeroFetchSettled] = useState(false)
   const [gridMovies, setGridMovies] = useState<Movie[]>(
     () => readGridSessionCache(0) ?? []
   )
   const [heroError, setHeroError] = useState<string | null>(null)
   const [gridError, setGridError] = useState<string | null>(null)
-  const [gridLoading, setGridLoading] = useState(
-    () => readGridSessionCache(0) === null
-  )
 
   useTvSpatialMainEntry(heroMovies.length > 0 ? 'home-hero-0' : 'home-cat-0')
 
   useEffect(() => {
     let cancelled = false
-    const hadHeroCache = readHeroSessionCache() !== null
-    if (!hadHeroCache) {
-      setHeroError(null)
-      setHeroReady(false)
-    }
+    setHeroError(null)
     ;(async () => {
       try {
         const hero = await fetchHomeHeroMovies(MACCMS_HOME_HERO_COUNT)
         if (!cancelled) {
-          setHeroMovies(hero)
+          setHeroMovies((prev) => (homeHeroStripEqual(prev, hero) ? prev : hero))
           writeHeroSessionCache(hero)
           setHeroError(null)
         }
       } catch (e) {
         if (!cancelled) {
-          if (!readHeroSessionCache()) {
+          const snap = readHeroSessionCache()
+          if (snap == null || snap.length === 0) {
             setHeroMovies([])
             setHeroError(e instanceof Error ? e.message : '海报加载失败')
           }
         }
       } finally {
-        if (!cancelled) setHeroReady(true)
+        if (!cancelled) setHeroFetchSettled(true)
       }
     })()
     return () => {
@@ -409,28 +401,28 @@ export function HomePage() {
     const cat = categories[activeCategory] as HomeNavCategory
     let cancelled = false
     const cachedGrid = readGridSessionCache(activeCategory)
-    if (cachedGrid) {
+    if (cachedGrid !== null) {
       setGridMovies(cachedGrid)
       setGridError(null)
+    } else {
+      setGridMovies([])
     }
-    if (!cachedGrid) setGridLoading(true)
     ;(async () => {
       try {
         const list = await fetchHomeLatestForCategory(cat)
         if (!cancelled) {
-          setGridMovies(list)
+          setGridMovies((prev) => (homeGridListEqual(prev, list) ? prev : list))
           writeGridSessionCache(activeCategory, list)
           setGridError(null)
         }
       } catch (e) {
         if (!cancelled) {
-          if (!readGridSessionCache(activeCategory)) {
+          const snap = readGridSessionCache(activeCategory)
+          if (snap == null || snap.length === 0) {
             setGridMovies([])
             setGridError(e instanceof Error ? e.message : '列表加载失败')
           }
         }
-      } finally {
-        if (!cancelled) setGridLoading(false)
       }
     })()
     return () => {
@@ -487,9 +479,6 @@ export function HomePage() {
             {[heroError, gridError].filter(Boolean).join(' · ')}
           </span>
         )}
-        {gridLoading && (
-          <span className="ml-4 text-sm text-muted-foreground">列表加载中…</span>
-        )}
       </header>
 
       {updateBannerOn && remote && (
@@ -507,16 +496,7 @@ export function HomePage() {
           ref={scrollContainerRef}
           className="flex gap-4 items-center min-h-[300px] overflow-x-auto overflow-y-visible no-scrollbar px-5 py-6"
         >
-          {!heroReady && !heroError ? (
-            <p className="text-muted-foreground px-5">海报加载中…</p>
-          ) : heroReady && heroMovies.length === 0 && !heroError ? (
-            <p className="max-w-xl px-5 text-sm text-muted-foreground">
-              暂无「推荐等级 {MACCMS_HERO_RECOMMEND_LEVEL}」的影片用于海报位。请在 MACCMS
-              后台将首页幻灯片条目的推荐值设为 {MACCMS_HERO_RECOMMEND_LEVEL}。
-            </p>
-          ) : heroMovies.length === 0 && heroError ? (
-            <p className="text-destructive px-5 text-sm">{heroError}</p>
-          ) : (
+          {heroMovies.length > 0 ? (
             heroMovies.map((movie, i) => (
               <HomeHeroTile
                 key={movie.id}
@@ -532,7 +512,14 @@ export function HomePage() {
                 showUpdateBanner={updateBannerOn}
               />
             ))
-          )}
+          ) : heroFetchSettled && !heroError ? (
+            <p className="max-w-xl px-5 text-sm text-muted-foreground">
+              暂无「推荐等级 {MACCMS_HERO_RECOMMEND_LEVEL}」的影片用于海报位。请在 MACCMS
+              后台将首页幻灯片条目的推荐值设为 {MACCMS_HERO_RECOMMEND_LEVEL}。
+            </p>
+          ) : heroMovies.length === 0 && heroError ? (
+            <p className="text-destructive px-5 text-sm">{heroError}</p>
+          ) : null}
         </div>
       </section>
 

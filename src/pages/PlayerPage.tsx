@@ -2,7 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { triggerAppBackNavigation } from '@/components/AppBackHandler'
 import { cn } from '@/lib/utils'
-import { heroMovies } from '@/data/mockData'
+import type { Movie } from '@/data/mockData'
+import {
+  enrichMovieFromDetailRow,
+  fetchVodDetailById,
+  mapVodRowToMovie,
+} from '@/lib/maccmsApi'
+import { upsertWatchHistory } from '@/lib/userLibraryStorage'
 import {
   ArrowLeft, Play, Pause, SkipBack, SkipForward,
   Gauge, List, RefreshCw, FastForward, X, AlertTriangle,
@@ -28,8 +34,20 @@ function formatDuration(seconds: number): string {
 export function PlayerPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const movie = heroMovies.find(m => m.id === id) || heroMovies[0]
-  const totalEpisodes = movie.episodes || 1
+  const [movie, setMovie] = useState<Movie | null>(null)
+
+  const displayMovie: Movie =
+    movie ?? {
+      id: id || '0',
+      title: '加载中…',
+      poster: '/images/movie-poster-1.png',
+      rating: 0,
+      year: '—',
+      genre: '—',
+      area: '—',
+    }
+
+  const totalEpisodes = Math.max(1, movie?.episodes ?? 1)
 
   // Core playback states
   const [isPlaying, setIsPlaying] = useState(true)
@@ -67,11 +85,48 @@ export function PlayerPage() {
   const resumePromptTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const nextEpisodeTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const progressBarRef = useRef<HTMLDivElement>(null)
+  const movieRef = useRef<Movie | null>(null)
+  const durationRef = useRef(2856)
+  const currentTimeRef = useRef(723)
 
   const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
   const sources = ['源1 - 蓝光', '源2 - 超清', '源3 - 高清', '源4 - 备用']
 
-  // Update system time
+  // 拉取 MACCMS 详情（标题/海报/集数）；观看历史依赖真实 Movie
+  useEffect(() => {
+    if (!id) return
+    const vodId = id
+    let cancelled = false
+    setErrorMessage(null)
+    ;(async () => {
+      try {
+        const row = await fetchVodDetailById(vodId)
+        if (cancelled) return
+        if (!row) {
+          setMovie(null)
+          setErrorMessage('未找到影片')
+          return
+        }
+        setMovie(enrichMovieFromDetailRow(mapVodRowToMovie(row), row))
+      } catch (e) {
+        if (!cancelled) {
+          setMovie(null)
+          setErrorMessage(e instanceof Error ? e.message : '加载失败')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  useEffect(() => {
+    setCurrentEpisode(1)
+    setCurrentTime(0)
+    setIsPlaying(true)
+    setShowNextEpisodePrompt(false)
+  }, [id])
+
   useEffect(() => {
     const updateTime = () => {
       const now = new Date()
@@ -154,6 +209,36 @@ export function PlayerPage() {
   }, [currentEpisode, totalEpisodes])
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
+
+  movieRef.current = movie
+  durationRef.current = duration
+  currentTimeRef.current = currentTime
+
+  useEffect(() => {
+    if (!movie) return
+    const pct = duration > 0 ? (currentTime / duration) * 100 : 0
+    upsertWatchHistory(movie, Math.min(100, Math.max(0, pct)))
+  }, [movie?.id])
+
+  useEffect(() => {
+    if (!movie) return
+    const tid = window.setInterval(() => {
+      const d = durationRef.current
+      const t = currentTimeRef.current
+      const p = d > 0 ? Math.min(100, (t / d) * 100) : 0
+      upsertWatchHistory(movie, p)
+    }, 15000)
+    return () => clearInterval(tid)
+  }, [movie?.id])
+
+  useEffect(() => {
+    return () => {
+      const m = movieRef.current
+      const d = durationRef.current
+      const t = currentTimeRef.current
+      if (m && d > 0) upsertWatchHistory(m, Math.min(100, (t / d) * 100))
+    }
+  }, [])
 
   const handleSeek = useCallback((direction: 'forward' | 'backward') => {
     const delta = SEEK_DELTA_SECONDS
@@ -378,8 +463,8 @@ export function PlayerPage() {
       {/* Video placeholder */}
       <div className="absolute inset-0">
         <img
-          src={movie.backdrop || movie.poster}
-          alt={movie.title}
+          src={displayMovie.backdrop || displayMovie.poster}
+          alt={displayMovie.title}
           className="w-full h-full object-cover"
         />
         <div className="absolute inset-0 bg-background/30" />
@@ -539,10 +624,10 @@ export function PlayerPage() {
             </button>
             <div>
               <h2 className="text-lg font-bold text-foreground">
-                {movie.title}
+                {displayMovie.title}
                 {totalEpisodes > 1 && (
-                  <span className="text-muted-foreground font-normal text-base ml-2">
-                    第{currentEpisode}集
+                  <span className="ml-2 inline-flex align-middle rounded-md bg-white/50 px-2 py-0.5 text-sm font-medium text-yellow-400 shadow-sm backdrop-blur-sm">
+                    更新至{currentEpisode}集
                   </span>
                 )}
               </h2>

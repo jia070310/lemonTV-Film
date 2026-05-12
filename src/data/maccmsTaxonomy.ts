@@ -8,8 +8,54 @@ export type HomeNavCategory = (typeof HOME_NAV_CATEGORIES)[number]
 export const TYPE_IDS_BY_HOME_CATEGORY: Record<HomeNavCategory, number[]> = {
   电视剧: [13, 14, 15, 16, 23],
   电影: [6, 7, 8, 9, 10, 11, 12, 19, 20, 21, 37],
+  /** 与 MACCMS 后台「分类 ID」一致；若你站综艺/动漫 ID 不同，请用环境变量覆盖（见 getHomeGridTypeIds） */
   综艺: [24, 25, 26, 27],
   动漫: [28, 29, 30, 31],
+}
+
+/**
+ * 部分 MACCMS 站点综艺/等板块下，子类 `t=24` 等 list 为空，但主类 `t=3` 有数据且 `vod.type_id` 仍为父类 ID。
+ * 首页 list 请求除子类外会额外带上此处 ID（去重），与 {@link getHomeGridTypeIds} 结果合并请求。
+ */
+export const HOME_LIST_ANCHOR_TYPE_IDS: Partial<Record<HomeNavCategory, number[]>> = {
+  综艺: [3],
+}
+
+function parseCommaSeparatedTypeIds(raw: string | undefined): number[] | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  const ids = raw
+    .split(/[,，\s]+/)
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return ids.length > 0 ? ids : undefined
+}
+
+/**
+ * 首页「最新」卡片区请求用的子分类 type_id。
+ * 可用 `.env` 覆盖（逗号分隔），与后台「视频 / 分类」里的数字一致：
+ * - VITE_MACCMS_HOME_IDS_TV — 电视剧
+ * - VITE_MACCMS_HOME_IDS_MOVIE — 电影
+ * - VITE_MACCMS_HOME_IDS_VARIETY — 综艺
+ * - VITE_MACCMS_HOME_IDS_ANIME — 动漫
+ */
+export function getHomeGridTypeIds(cat: HomeNavCategory): number[] {
+  const env = import.meta.env as Record<string, string | undefined>
+  const key =
+    cat === '电视剧'
+      ? 'VITE_MACCMS_HOME_IDS_TV'
+      : cat === '电影'
+        ? 'VITE_MACCMS_HOME_IDS_MOVIE'
+        : cat === '综艺'
+          ? 'VITE_MACCMS_HOME_IDS_VARIETY'
+          : 'VITE_MACCMS_HOME_IDS_ANIME'
+  return parseCommaSeparatedTypeIds(env[key]) ?? TYPE_IDS_BY_HOME_CATEGORY[cat]
+}
+
+/** 首页「最新」list 的 `t=` 参数：子类 ID + 站点级锚点（如综艺父类 3） */
+export function getHomeListQueryTypeIds(cat: HomeNavCategory): number[] {
+  const base = getHomeGridTypeIds(cat)
+  const extra = HOME_LIST_ANCHOR_TYPE_IDS[cat] ?? []
+  return [...new Set([...base, ...extra])]
 }
 
 export type MaccmsFilterKey = 'type' | 'plot' | 'area' | 'lang' | 'year' | 'sort'

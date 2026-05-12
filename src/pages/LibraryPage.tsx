@@ -1,18 +1,21 @@
+import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { gridDownNeighborIndex } from '@/lib/gridSpatialNav'
 import { cn } from '@/lib/utils'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { PosterCard } from '@/components/PosterCard'
-import { movieList } from '@/data/mockData'
 import type { Movie } from '@/data/mockData'
+import {
+  getFavorites,
+  getWatchHistory,
+  LIBRARY_CHANGED_EVENT,
+  type WatchHistoryItem,
+} from '@/lib/userLibraryStorage'
 import { Heart, Clock, FileX } from 'lucide-react'
 
 type TabType = 'favorite' | 'history'
 
 const GRID_COLS = 6
-
-const favoriteMovies = movieList.slice(0, 8)
-const historyMovies = movieList.slice(5, 14)
 
 function LibraryTabBtn({
   which,
@@ -20,21 +23,23 @@ function LibraryTabBtn({
   onSelect,
   icon,
   label,
+  hasGrid,
 }: {
   which: 0 | 1
   active: boolean
   onSelect: () => void
   icon: React.ReactNode
   label: string
+  hasGrid: boolean
 }) {
   const spatial = useTvSpatialNode(
     `library-tab-${which}`,
     () => ({
       left: which === 1 ? 'library-tab-0' : undefined,
       right: which === 0 ? 'library-tab-1' : undefined,
-      down: 'library-grid-0',
+      down: hasGrid ? 'library-grid-0' : undefined,
     }),
-    [which]
+    [which, hasGrid]
   )
 
   return (
@@ -60,13 +65,14 @@ function LibraryGridCell({
   movie,
   total,
   tabUpId,
-  showProgress,
+  progressPercent,
 }: {
   index: number
   movie: Movie
   total: number
   tabUpId: string
-  showProgress: boolean
+  /** 有值时显示底部进度条（观看历史） */
+  progressPercent?: number
 }) {
   const row = Math.floor(index / GRID_COLS)
   const col = index % GRID_COLS
@@ -76,17 +82,22 @@ function LibraryGridCell({
     () => {
       const downIdx = gridDownNeighborIndex(index, total, GRID_COLS)
       return {
-      up: row === 0 ? tabUpId : `library-grid-${index - GRID_COLS}`,
-      down: downIdx !== undefined ? `library-grid-${downIdx}` : undefined,
-      left: col === 0 ? 'nav-0' : `library-grid-${index - 1}`,
-      right:
-        col < GRID_COLS - 1 && index + 1 < total
-          ? `library-grid-${index + 1}`
-          : undefined,
+        up: row === 0 ? tabUpId : `library-grid-${index - GRID_COLS}`,
+        down: downIdx !== undefined ? `library-grid-${downIdx}` : undefined,
+        left: col === 0 ? 'nav-0' : `library-grid-${index - 1}`,
+        right:
+          col < GRID_COLS - 1 && index + 1 < total
+            ? `library-grid-${index + 1}`
+            : undefined,
       }
     },
     [index, total, tabUpId]
   )
+
+  const pct =
+    progressPercent != null
+      ? Math.round(Math.min(100, Math.max(0, progressPercent)))
+      : undefined
 
   return (
     <div className="library-poster-cell relative">
@@ -99,11 +110,11 @@ function LibraryGridCell({
           className="w-full"
         />
       </div>
-      {showProgress && (
+      {pct != null && (
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-0 mx-0.5 h-1 overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-primary"
-            style={{ width: `${Math.max(15, Math.min(95, 30 + index * 8))}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
       )}
@@ -115,13 +126,33 @@ export function LibraryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('tab') as TabType) || 'favorite'
 
+  const [favorites, setFavorites] = useState<Movie[]>(() => getFavorites())
+  const [history, setHistory] = useState<WatchHistoryItem[]>(() => getWatchHistory())
+
   const setTab = (t: TabType) => {
     setSearchParams({ tab: t })
   }
 
   const isFavorite = tab === 'favorite'
-  const items = isFavorite ? favoriteMovies : historyMovies
   const tabUpId = isFavorite ? 'library-tab-0' : 'library-tab-1'
+
+  const refresh = useCallback(() => {
+    setFavorites(getFavorites())
+    setHistory(getWatchHistory())
+  }, [])
+
+  useEffect(() => {
+    refresh()
+  }, [tab, refresh])
+
+  useEffect(() => {
+    const fn = () => refresh()
+    window.addEventListener(LIBRARY_CHANGED_EVENT, fn)
+    return () => window.removeEventListener(LIBRARY_CHANGED_EVENT, fn)
+  }, [refresh])
+
+  const items: Movie[] = isFavorite ? favorites : history.map((h) => h.movie)
+  const hasGrid = items.length > 0
 
   useTvSpatialMainEntry('library-tab-0')
 
@@ -135,6 +166,7 @@ export function LibraryPage() {
             onSelect={() => setTab('favorite')}
             icon={<Heart size={18} />}
             label="我的收藏"
+            hasGrid={isFavorite && hasGrid}
           />
           <LibraryTabBtn
             which={1}
@@ -142,6 +174,7 @@ export function LibraryPage() {
             onSelect={() => setTab('history')}
             icon={<Clock size={18} />}
             label="观看历史"
+            hasGrid={!isFavorite && hasGrid}
           />
         </div>
 
@@ -160,7 +193,9 @@ export function LibraryPage() {
                 movie={movie}
                 total={items.length}
                 tabUpId={tabUpId}
-                showProgress={!isFavorite}
+                progressPercent={
+                  !isFavorite ? history.find((h) => h.movie.id === movie.id)?.progress : undefined
+                }
               />
             ))}
           </div>
@@ -171,7 +206,7 @@ export function LibraryPage() {
               {isFavorite ? '暂无收藏影片' : '暂无观看记录'}
             </p>
             <p className="text-sm mt-2 opacity-50">
-              {isFavorite ? '在详情页点击收藏按钮添加' : '开始观看影片后自动记录'}
+              {isFavorite ? '在详情页点击收藏按钮添加' : '在播放页观看后会自动记录'}
             </p>
           </div>
         )}

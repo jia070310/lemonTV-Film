@@ -92,19 +92,9 @@ export function PosterCard({
             无封面
           </div>
         )}
-        {movie.rating > 0 && (
-          <div className="absolute right-2 top-2 z-[2] rounded border border-primary/30 bg-background/85 px-1.5 py-0.5 text-xs font-bold text-primary backdrop-blur-sm">
-            {movie.rating}
-          </div>
-        )}
         {movie.tag && (
           <div
-            className={cn(
-              'absolute left-2 bottom-11 z-[2] max-w-[calc(100%-0.75rem)] truncate rounded px-1.5 py-0.5 text-[10px] font-bold shadow-sm',
-              movie.tag === '热门'
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-blue-600/95 text-primary-foreground'
-            )}
+            className="absolute bottom-2 left-2 z-[2] max-w-[calc(100%-1rem)] truncate rounded px-1.5 py-0.5 text-[10px] font-bold shadow-sm bg-white/50 text-yellow-400 backdrop-blur-sm"
             title={movie.tag}
           >
             {movie.tag}
