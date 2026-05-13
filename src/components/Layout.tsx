@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   { label: '动漫', icon: <Sparkles size={20} />, path: '/filter?category=动漫', matchPrefix: '/filter' },
   { label: '搜索', icon: <Search size={20} />, path: '/search' },
   { label: '我的收藏', icon: <Heart size={20} />, path: '/library?tab=favorite', matchPrefix: '/library' },
-  { label: '观看历史', icon: <Clock size={20} />, path: '/library?tab=history', matchPrefix: '/library' },
+  { label: '播放记录', icon: <Clock size={20} />, path: '/library?tab=history', matchPrefix: '/library' },
   { label: '设置', icon: <Settings size={20} />, path: '/settings' },
 ]
 

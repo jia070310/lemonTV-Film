@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ 闪屏中心图：与 Web 同源 @drawable/lom（drawable-nodpi/lom.png） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="@dimen/splash_center_icon_dp"
+        android:height="@dimen/splash_center_icon_dp"
+        android:gravity="center">
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/lom" />
+    </item>
+</layer-list>

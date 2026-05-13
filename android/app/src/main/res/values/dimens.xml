@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 自适应图标前景再内缩，与 mipmap 生成留白一致，避免圆角/圆形裁切后图案偏大 -->
+    <dimen name="adaptive_icon_fg_inset">42dp</dimen>
+    <!-- 原生闪屏（含 API 12+ 中心图）内 logo 留白；0 表示尽量铺满中间区域 -->
+    <dimen name="splash_logo_inset">0dp</dimen>
+    <!-- 与 Web 启动页 logo 视觉接近；系统仍会在圆内裁切，需略大于逻辑像素 -->
+    <dimen name="splash_center_icon_dp">320dp</dimen>
+</resources>

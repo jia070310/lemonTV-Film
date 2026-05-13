@@ -100,6 +100,13 @@
     color: inherit !important;
   }
 
+  /* 播放器进度条：通用焦点黄底 + 去阴影会把「已播比例」盖住，这里保留半透明轨与焦点环 */
+  .tv-focusable.player-progress-track:focus,
+  .tv-focusable.player-progress-track:focus-visible {
+    background-color: rgb(255 255 255 / 0.2) !important;
+    color: inherit !important;
+    box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.85) !important;
+  }
   input.tv-focusable:focus::placeholder,
   textarea.tv-focusable:focus::placeholder {
     color: hsl(var(--primary-foreground) / 0.45);
@@ -147,6 +154,12 @@
     z-index: 50;
   }
 
+  /* 通用弹窗底栏（清除缓存、版本更新、收藏确认等）：未焦点深灰底白字；焦点黄底黑字 */
+  .tv-focusable.tv-dialog-action-btn:not(:focus) {
+    background-color: hsl(var(--tv-selected-bg)) !important;
+    color: hsl(var(--tv-selected-fg)) !important;
+  }
+
   /* 选中态：深灰底白字（焦点时由 .tv-focusable:focus 覆盖为黄底黑字） */
   .tv-tab-selected {
     background-color: hsl(var(--tv-selected-bg));
@@ -155,6 +168,24 @@
 
   .poster-focus {
     transition: none;
+  }
+
+  /* 详情页预览 video：隐藏 WebKit 媒体控件层（加载态由全黑「加载中」+ video 透明承担） */
+  video.detail-preview-video {
+    background-color: #000;
+  }
+
+  video.detail-preview-video::-webkit-media-controls-enclosure,
+  video.detail-preview-video::-webkit-media-controls-panel,
+  video.detail-preview-video::-webkit-media-controls-overlay-play-button,
+  video.detail-preview-video::-webkit-media-controls-start-playback-button {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  video.detail-preview-video::-webkit-media-controls {
+    display: none !important;
   }
 
   /* 焦点时封面中央播放图标（::after 叠在封面与角标之上） */
@@ -300,4 +331,10 @@
   .animate-scale-in {
     animation: scale-in 0.3s ease-out forwards;
   }
+}
+
+/* 详情页内嵌预览：去掉 Chromium 默认「大播放」叠层，避免加载中与首帧之间的闪屏 */
+.detail-preview-video::-webkit-media-controls-overlay-play-button,
+.detail-preview-video::-webkit-media-controls-start-playback-button {
+  display: none !important;
 }

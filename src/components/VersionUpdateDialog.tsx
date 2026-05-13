@@ -111,7 +111,7 @@ export function VersionUpdateDialog({
           <button
             type="button"
             {...cancelSpatial}
-            className="tv-focusable pill-focus rounded-full bg-secondary px-6 py-2.5 text-sm font-medium text-secondary-foreground"
+            className="tv-focusable tv-dialog-action-btn pill-focus rounded-full px-6 py-2.5 text-sm font-medium"
             onClick={onClose}
           >
             稍后
@@ -119,7 +119,7 @@ export function VersionUpdateDialog({
           <button
             type="button"
             {...downloadSpatial}
-            className="tv-focusable pill-focus rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground"
+            className="tv-focusable tv-dialog-action-btn pill-focus rounded-full px-6 py-2.5 text-sm font-medium"
             onClick={() => {
               onDownload()
               onClose()

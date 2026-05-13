@@ -1,7 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import {
+  getPlaybackSettings,
+  savePlaybackSettings,
+} from '@/lib/playbackSettingsStorage'
 import { APP_REPO_PAGE_URL, APP_VERSION_NAME } from '@/config/version'
 import { useVersionUpdate } from '@/context/VersionUpdateContext'
+import {
+  clearTransientAppCache,
+  formatApproxByteSize,
+  getLocalTransientCacheEstimateBytes,
+} from '@/lib/appCacheManagement'
+import { TvConfirmDialog } from '@/components/TvConfirmDialog'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import {
   Play,
@@ -20,17 +30,23 @@ interface SwitchProps {
 }
 
 function TvSwitch({ checked, onChange, spatialProps }: SwitchProps) {
+  const toggle = () => onChange(!checked)
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       {...spatialProps}
       className={cn(
         'tv-focusable relative w-12 h-7 rounded-full transition-all duration-300 outline-none',
         checked ? 'bg-primary' : 'bg-muted'
       )}
-      onClick={() => onChange(!checked)}
+      onClick={toggle}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onChange(!checked)
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          toggle()
+        }
       }}
     >
       <div
@@ -137,18 +153,66 @@ export function SettingsPage() {
     []
   )
 
-  const [autoSkip, setAutoSkip] = useState(true)
-  const [autoPlayNext, setAutoPlayNext] = useState(true)
-  const [defaultSpeed, setDefaultSpeed] = useState('1.0x')
+  const [autoSkip, setAutoSkip] = useState(() => getPlaybackSettings().autoSkipIntroOutro)
+  const [autoPlayNext, setAutoPlayNext] = useState(() => getPlaybackSettings().autoPlayNext)
+  const [defaultSpeed, setDefaultSpeed] = useState(() => getPlaybackSettings().defaultSpeed)
   const [defaultQuality, setDefaultQuality] = useState('高清')
   const [showCleared, setShowCleared] = useState(false)
+  const [cacheEstimateBytes, setCacheEstimateBytes] = useState(0)
+  const [isClearingCache, setIsClearingCache] = useState(false)
+  const [lastClearMessage, setLastClearMessage] = useState<string | null>(null)
+  const [clearCacheConfirmOpen, setClearCacheConfirmOpen] = useState(false)
 
-  const handleClearCache = () => {
-    setShowCleared(true)
-    setTimeout(() => setShowCleared(false), 2000)
+  const refreshCacheEstimate = () => {
+    setCacheEstimateBytes(getLocalTransientCacheEstimateBytes())
+  }
+
+  useEffect(() => {
+    const s = getPlaybackSettings()
+    setAutoSkip(s.autoSkipIntroOutro)
+    setAutoPlayNext(s.autoPlayNext)
+    setDefaultSpeed(s.defaultSpeed)
+    refreshCacheEstimate()
+  }, [])
+
+  const runClearCache = async () => {
+    setIsClearingCache(true)
+    setLastClearMessage(null)
+    try {
+      const result = await clearTransientAppCache()
+      refreshCacheEstimate()
+      const parts: string[] = []
+      if (result.persistKeysRemoved > 0) {
+        parts.push(`已移除 ${result.persistKeysRemoved} 条本地存储`)
+      }
+      if (result.cacheApiStoresDeleted > 0) {
+        parts.push(`已清理 ${result.cacheApiStoresDeleted} 个网络缓存仓库`)
+      }
+      if (result.approximateBytesFreed > 0) {
+        parts.push(`约释放 ${formatApproxByteSize(result.approximateBytesFreed)}`)
+      }
+      if (parts.length === 0) {
+        parts.push('当前无可清理的本地缓存')
+      }
+      if (result.errors.length > 0) {
+        parts.push(`部分步骤异常：${result.errors.join('；')}`)
+      }
+      setLastClearMessage(parts.join(' · '))
+      setShowCleared(true)
+      setTimeout(() => setShowCleared(false), 2800)
+    } catch (e) {
+      setLastClearMessage(
+        e instanceof Error ? `清理失败：${e.message}` : '清理失败'
+      )
+      setShowCleared(true)
+      setTimeout(() => setShowCleared(false), 2800)
+    } finally {
+      setIsClearingCache(false)
+    }
   }
 
   return (
+    <>
     <div className="h-full flex flex-col bg-background overflow-hidden p-8">
       <h2 className="text-3xl font-bold text-foreground mb-8">设置</h2>
 
@@ -162,11 +226,14 @@ export function SettingsPage() {
           <SettingItem
             icon={<Play size={18} />}
             title="自动跳过片头片尾"
-            description="播放时自动跳过片头片尾"
+            description="关闭时播放器不会自动跳过；开启后按播放器内片头/片尾时长与分项开关生效"
           >
             <TvSwitch
               checked={autoSkip}
-              onChange={setAutoSkip}
+              onChange={(v) => {
+                setAutoSkip(v)
+                savePlaybackSettings({ autoSkipIntroOutro: v })
+              }}
               spatialProps={spatialSkip}
             />
           </SettingItem>
@@ -177,7 +244,10 @@ export function SettingsPage() {
           >
             <TvSwitch
               checked={autoPlayNext}
-              onChange={setAutoPlayNext}
+              onChange={(v) => {
+                setAutoPlayNext(v)
+                savePlaybackSettings({ autoPlayNext: v })
+              }}
               spatialProps={spatialNext}
             />
           </SettingItem>
@@ -189,7 +259,10 @@ export function SettingsPage() {
             <TvSelect
               options={['0.5x', '1.0x', '1.25x', '1.5x', '2.0x']}
               value={defaultSpeed}
-              onChange={setDefaultSpeed}
+              onChange={(v) => {
+                setDefaultSpeed(v)
+                savePlaybackSettings({ defaultSpeed: v })
+              }}
             />
           </SettingItem>
         </div>
@@ -219,34 +292,42 @@ export function SettingsPage() {
             <HardDrive size={20} className="text-primary" />
             <h3 className="text-lg font-bold text-foreground">缓存管理</h3>
           </div>
-          <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground">
-                <HardDrive size={18} />
-              </div>
-              <div>
-                <h4 className="text-base font-medium text-foreground">清除缓存</h4>
-                <p className="text-sm text-muted-foreground">清除本地图片和配置缓存</p>
-              </div>
-            </div>
+          {lastClearMessage && (
+            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+              {lastClearMessage}
+            </p>
+          )}
+          <SettingItem
+            icon={<HardDrive size={18} />}
+            title="清除缓存"
+            description={`本地可清理约 ${formatApproxByteSize(cacheEstimateBytes)}（首页海报与列表、版本更新横幅「已忽略」记录）；不会删除收藏、观看历史、播放进度与播放设置。若环境支持会同时尝试清理 Cache Storage。Android WebView 磁盘图片缓存主要由系统管理。`}
+          >
             <button
               type="button"
+              disabled={isClearingCache}
               {...spatialClearCache}
               className={cn(
                 'tv-focusable pill-focus px-5 py-2 rounded-full text-sm font-medium transition-all',
                 showCleared
                   ? 'bg-green-500 text-white'
-                  : 'bg-secondary text-secondary-foreground hover:bg-surface-hover'
+                  : 'bg-secondary text-secondary-foreground hover:bg-surface-hover',
+                isClearingCache && 'opacity-60 pointer-events-none'
               )}
-              onClick={handleClearCache}
+              onClick={() => {
+                if (!isClearingCache) setClearCacheConfirmOpen(true)
+              }}
             >
               {showCleared ? (
-                <span className="flex items-center gap-1"><Check size={14} /> 已清除</span>
+                <span className="flex items-center gap-1">
+                  <Check size={14} /> 已清除
+                </span>
+              ) : isClearingCache ? (
+                '处理中…'
               ) : (
                 '清除缓存'
               )}
             </button>
-          </div>
+          </SettingItem>
         </div>
 
         {/* About */}
@@ -341,5 +422,26 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+
+    {clearCacheConfirmOpen && (
+      <TvConfirmDialog
+        spatialIdPrefix="settings-cache-clear"
+        title="确定清除缓存？"
+        onCancel={() => setClearCacheConfirmOpen(false)}
+        onConfirm={() => {
+          setClearCacheConfirmOpen(false)
+          void runClearCache()
+        }}
+      >
+        <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            将清除：首页海报与列表的本地数据、版本更新横幅的「已忽略」记录；若浏览器支持，还会尝试清理
+            Cache Storage。
+          </p>
+          <p>不会清除：收藏、观看历史、播放进度、播放设置。</p>
+        </div>
+      </TvConfirmDialog>
+    )}
+    </>
   )
 }

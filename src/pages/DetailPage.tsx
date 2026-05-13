@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useTvSpatialMainEntry, useTvSpatialNode } from '@/tv/spatial'
 import { cn } from '@/lib/utils'
 import { PosterCard } from '@/components/PosterCard'
@@ -11,10 +11,21 @@ import {
   mapVodRowToMovie,
   parsePlaySources,
 } from '@/lib/maccmsApi'
-import { isFavorite, LIBRARY_CHANGED_EVENT, toggleFavorite } from '@/lib/userLibraryStorage'
+import { isFavorite, LIBRARY_CHANGED_EVENT, toggleFavorite, upsertWatchHistory } from '@/lib/userLibraryStorage'
+import {
+  getEpisodePlaybackProgress,
+  getLatestEpisodeProgressForVod,
+  resumePositionSecFromRecord,
+  saveEpisodePlaybackProgress,
+} from '@/lib/playbackProgressStorage'
+import {
+  getPlaybackSettings,
+  parseSpeedToNumber,
+} from '@/lib/playbackSettingsStorage'
+import { isWebPlayableUrl } from '@/lib/playbackVideoUrl'
 import {
   ArrowLeft,
-  Play,
+  Maximize2,
   Star,
   Calendar,
   MapPin,
@@ -22,11 +33,17 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 
 const EP_COLS = 8
 const EP_ROWS = 2
 const EP_PER_PAGE = EP_COLS * EP_ROWS
+
+/** 1×1 透明 PNG，避免 video 默认海报/灰底大播放按钮闪一下 */
+const VIDEO_TRANSPARENT_POSTER =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
 function episodeProgressLabel(movie: Movie, totalEpisodes: number): string {
   const aired = movie.airedEpisodes
@@ -320,19 +337,22 @@ function DetailRelatedCard({
   index,
   movie,
   relatedLen,
+  relatedUpId,
 }: {
   index: number
   movie: Movie
   relatedLen: number
+  /** 从推荐区向上：可播预览时先到静音，否则到全屏角标 */
+  relatedUpId: string
 }) {
   const spatial = useTvSpatialNode(
     `detail-rel-${index}`,
     () => ({
-      up: 'detail-play',
+      up: relatedUpId,
       left: index > 0 ? `detail-rel-${index - 1}` : 'detail-back',
       right: index < relatedLen - 1 ? `detail-rel-${index + 1}` : 'detail-src-0',
     }),
-    [index, relatedLen]
+    [index, relatedLen, relatedUpId]
   )
 
   return (
@@ -349,6 +369,7 @@ function DetailRelatedCard({
 export function DetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [selectedEpisode, setSelectedEpisode] = useState(1)
   const [currentSource, setCurrentSource] = useState(0)
   const [episodePage, setEpisodePage] = useState(0)
@@ -360,6 +381,12 @@ export function DetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [synopsisExpandable, setSynopsisExpandable] = useState(false)
   const [favorited, setFavorited] = useState(false)
+  /** 详情预览：真正起播前保持遮罩并隐藏 video，避免 Android WebView 绘制系统大播放图标 */
+  const [previewUiLoading, setPreviewUiLoading] = useState(true)
+  /** 首帧已上屏后再显示 video 层，避免加载中与首帧之间闪原生大播放图标 */
+  const [previewFirstFrameReady, setPreviewFirstFrameReady] = useState(false)
+  /** 详情预览区：默认静音（浏览器策略），用户可点喇叭开声 */
+  const [previewMuted, setPreviewMuted] = useState(true)
 
   const onSynopsisExpandableChange = useCallback((v: boolean) => {
     setSynopsisExpandable(v)
@@ -392,8 +419,18 @@ export function DetailPage() {
             ? bundles
             : [{ name: '默认', episodes: [{ label: '正片', url: '' }] }]
         )
-        setCurrentSource(0)
-        setSelectedEpisode(1)
+        const latest = getLatestEpisodeProgressForVod(enriched.id)
+        if (latest && bundles.length > 0) {
+          const src = Math.min(Math.max(0, latest.sourceIndex), bundles.length - 1)
+          const eps = bundles[src]?.episodes ?? []
+          const epMax = Math.max(1, eps.length)
+          const ep = Math.min(Math.max(1, latest.episodeIndex), epMax)
+          setCurrentSource(src)
+          setSelectedEpisode(ep)
+        } else {
+          setCurrentSource(0)
+          setSelectedEpisode(1)
+        }
         setEpisodePage(0)
         const tid = Number(row.type_id)
         if (tid) {
@@ -432,8 +469,301 @@ export function DetailPage() {
   ]
   const totalEpisodes = Math.max(1, bundleEpisodes.length)
 
+  const previewUrl = useMemo(() => {
+    const u = bundleEpisodes[selectedEpisode - 1]?.url?.trim() || ''
+    return u
+  }, [bundleEpisodes, selectedEpisode])
+
+  const previewVideoRef = useRef<HTMLVideoElement>(null)
+
+  const playerSearch = useMemo(() => {
+    const sp = new URLSearchParams()
+    sp.set('ep', String(selectedEpisode))
+    sp.set('src', String(currentSource))
+    return sp.toString()
+  }, [selectedEpisode, currentSource])
+
+  const goPlayer = useCallback(() => {
+    if (!movie) return
+    const run = () => {
+      if (isWebPlayableUrl(previewUrl)) {
+        const v = previewVideoRef.current
+        const t = v && Number.isFinite(v.currentTime) ? Math.max(0, v.currentTime) : 0
+        const dVideo = v && Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0
+        const rec = getEpisodePlaybackProgress(movie.id, currentSource, selectedEpisode)
+        const durationSec = dVideo > 0 ? dVideo : rec?.durationSec ?? 0
+        /** 未等到 metadata 就进全屏时也要带上预览进度；接近 0 不写入以免覆盖旧续播点 */
+        if (t > 0.25) {
+          saveEpisodePlaybackProgress({
+            vodId: movie.id,
+            sourceIndex: currentSource,
+            episodeIndex: selectedEpisode,
+            positionSec: durationSec > 0 ? Math.min(t, durationSec - 0.25) : t,
+            durationSec: Math.max(durationSec, t),
+          })
+        }
+      }
+      navigate(`/player/${movie.id}?${playerSearch}`)
+    }
+    requestAnimationFrame(run)
+  }, [movie, navigate, playerSearch, previewUrl, currentSource, selectedEpisode])
+
+  useLayoutEffect(() => {
+    if (!movie || !isWebPlayableUrl(previewUrl)) {
+      setPreviewUiLoading(false)
+      setPreviewFirstFrameReady(false)
+      return
+    }
+    const v = previewVideoRef.current
+    if (!v) {
+      setPreviewUiLoading(true)
+      setPreviewFirstFrameReady(false)
+      return
+    }
+
+    setPreviewFirstFrameReady(false)
+
+    const show = () => setPreviewUiLoading(true)
+    const hide = () => setPreviewUiLoading(false)
+
+    setPreviewUiLoading(true)
+
+    let fallback: number | undefined
+    let rvfcHandle: number | undefined
+    let onTime: (() => void) | undefined
+    let frameWatchScheduled = false
+
+    const clearFb = () => {
+      if (fallback) {
+        clearTimeout(fallback)
+        fallback = undefined
+      }
+    }
+    const armFallback = () => {
+      clearFb()
+      fallback = window.setTimeout(() => {
+        fallback = undefined
+        if (previewVideoRef.current !== v) return
+        if (!v.paused || v.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+          hide()
+          setPreviewFirstFrameReady(true)
+        }
+      }, 4000)
+    }
+
+    const markFirstFrame = () => {
+      setPreviewFirstFrameReady(true)
+    }
+
+    const onLoadStart = () => {
+      setPreviewFirstFrameReady(false)
+      frameWatchScheduled = false
+      show()
+      armFallback()
+    }
+
+    const onPlaying = () => {
+      clearFb()
+      hide()
+      if (frameWatchScheduled) return
+      frameWatchScheduled = true
+      if (typeof v.requestVideoFrameCallback === 'function') {
+        rvfcHandle = v.requestVideoFrameCallback(() => {
+          markFirstFrame()
+        })
+      } else {
+        onTime = () => {
+          if (v.currentTime > 0.02 || v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            if (onTime) v.removeEventListener('timeupdate', onTime)
+            onTime = undefined
+            markFirstFrame()
+          }
+        }
+        v.addEventListener('timeupdate', onTime)
+      }
+    }
+
+    armFallback()
+    v.addEventListener('loadstart', onLoadStart)
+    v.addEventListener('playing', onPlaying)
+    const onWaiting = () => {
+      if (v.currentTime < 0.25 && !v.seeking) show()
+    }
+    v.addEventListener('waiting', onWaiting)
+    const onError = () => {
+      hide()
+      setPreviewFirstFrameReady(true)
+    }
+    v.addEventListener('error', onError)
+
+    return () => {
+      clearFb()
+      if (onTime) {
+        v.removeEventListener('timeupdate', onTime)
+        onTime = undefined
+      }
+      if (rvfcHandle != null && typeof v.cancelVideoFrameCallback === 'function') {
+        try {
+          v.cancelVideoFrameCallback(rvfcHandle)
+        } catch {
+          /* noop */
+        }
+        rvfcHandle = undefined
+      }
+      v.removeEventListener('loadstart', onLoadStart)
+      v.removeEventListener('playing', onPlaying)
+      v.removeEventListener('waiting', onWaiting)
+      v.removeEventListener('error', onError)
+    }
+  }, [movie?.id, previewUrl, currentSource, selectedEpisode])
+
+  useEffect(() => {
+    const v = previewVideoRef.current
+    if (!v || !isWebPlayableUrl(previewUrl) || !movie) return
+
+    const applyTimeline = (withPlay: boolean) => {
+      const settings = getPlaybackSettings()
+      const rec = getEpisodePlaybackProgress(movie.id, currentSource, selectedEpisode)
+      const d = v.duration || 0
+      let t = 0
+      const fromRec = resumePositionSecFromRecord(rec, d)
+      if (fromRec != null) {
+        t = fromRec
+      } else if (
+        settings.autoSkipIntroOutro &&
+        settings.skipIntroEnabled &&
+        settings.introSkipSec > 0
+      ) {
+        t = d > 0 ? Math.min(settings.introSkipSec, Math.max(0, d - 1)) : settings.introSkipSec
+      }
+      try {
+        if (t > 0 && Number.isFinite(t) && Math.abs(v.currentTime - t) > 0.75) {
+          v.currentTime = t
+        }
+      } catch {
+        /* ignore */
+      }
+      v.playbackRate = parseSpeedToNumber(settings.defaultSpeed)
+      if (withPlay) void v.play().catch(() => {})
+    }
+
+    const onMeta = () => {
+      applyTimeline(true)
+    }
+
+    /** TV/WebView 上 duration 可能晚于 metadata，再对齐一次续播 */
+    const onDurationChange = () => {
+      applyTimeline(false)
+    }
+
+    const persist = () => {
+      if (!v.duration || v.currentTime <= 0) return
+      saveEpisodePlaybackProgress({
+        vodId: movie.id,
+        sourceIndex: currentSource,
+        episodeIndex: selectedEpisode,
+        positionSec: v.currentTime,
+        durationSec: v.duration,
+      })
+      const pct = (v.currentTime / v.duration) * 100
+      upsertWatchHistory(movie, Math.min(100, Math.max(0, pct)), {
+        sourceIndex: currentSource,
+        episodeIndex: selectedEpisode,
+      })
+    }
+
+    v.addEventListener('loadedmetadata', onMeta)
+    v.addEventListener('durationchange', onDurationChange)
+    const timer = window.setInterval(persist, 5000)
+    return () => {
+      v.removeEventListener('loadedmetadata', onMeta)
+      v.removeEventListener('durationchange', onDurationChange)
+      window.clearInterval(timer)
+      persist()
+    }
+  }, [previewUrl, movie, currentSource, selectedEpisode])
+
+  /** 从播放页 SPA 返回时对齐本地续播点（pageshow/focus 在 WebView 里不一定触发） */
+  useEffect(() => {
+    const v = previewVideoRef.current
+    if (!v || !movie || !isWebPlayableUrl(previewUrl)) return
+    const path = `/detail/${movie.id}`
+    if (location.pathname !== path) return
+
+    const pullProgress = () => {
+      const rec = getEpisodePlaybackProgress(movie.id, currentSource, selectedEpisode)
+      const pos = resumePositionSecFromRecord(rec, v.duration || rec?.durationSec || 0)
+      if (pos == null) return
+      const d = v.duration || rec?.durationSec || 0
+      if (d > 0 && pos >= d - 0.5) return
+      if (Math.abs(v.currentTime - pos) <= 1.5) return
+      try {
+        v.currentTime = pos
+      } catch {
+        /* ignore */
+      }
+    }
+
+    pullProgress()
+    const r1 = requestAnimationFrame(() => pullProgress())
+    const t = window.setTimeout(pullProgress, 150)
+    return () => {
+      cancelAnimationFrame(r1)
+      clearTimeout(t)
+    }
+  }, [
+    location.key,
+    location.pathname,
+    movie?.id,
+    previewUrl,
+    currentSource,
+    selectedEpisode,
+  ])
+
+  /** 从全屏返回等场景：本地进度可能已更新，把预览对齐到存储（与播放页同一 key） */
+  useEffect(() => {
+    const v = previewVideoRef.current
+    if (!v || !movie || !isWebPlayableUrl(previewUrl)) return
+
+    const pullProgress = () => {
+      const rec = getEpisodePlaybackProgress(movie.id, currentSource, selectedEpisode)
+      const pos = resumePositionSecFromRecord(rec, v.duration || rec?.durationSec || 0)
+      if (pos == null) return
+      const d = v.duration || rec?.durationSec || 0
+      if (d > 0 && pos >= d - 0.5) return
+      if (Math.abs(v.currentTime - pos) <= 1.5) return
+      try {
+        v.currentTime = pos
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const onPageShow = () => {
+      if (v.readyState >= 1) pullProgress()
+      else {
+        const once = () => {
+          pullProgress()
+          v.removeEventListener('loadedmetadata', once)
+        }
+        v.addEventListener('loadedmetadata', once)
+      }
+    }
+
+    window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('focus', pullProgress)
+    return () => {
+      window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('focus', pullProgress)
+    }
+  }, [movie, previewUrl, currentSource, selectedEpisode])
+
   useEffect(() => {
     setEpisodePage(0)
+  }, [id])
+
+  useEffect(() => {
+    setPreviewMuted(true)
   }, [id])
 
   useEffect(() => {
@@ -449,7 +779,7 @@ export function DetailPage() {
   const relatedLen = relatedMovies.length
   const relatedRightmostId =
     relatedLen > 0 ? `detail-rel-${relatedLen - 1}` : 'detail-back'
-  /** 无推荐卡时从返回/大播放按下落到立即播放 */
+  /** 无推荐卡时从返回/全屏角标按下落到全屏播放按钮 */
   const relatedFirstDownId = relatedLen > 0 ? 'detail-rel-0' : 'detail-playbtn'
 
   useEffect(() => {
@@ -474,29 +804,45 @@ export function DetailPage() {
     return () => cancelAnimationFrame(raf)
   }, [id])
 
+  const previewPlayable = isWebPlayableUrl(previewUrl)
+
   const spatialBack = useTvSpatialNode(
     'detail-back',
     () => ({
       left: 'nav-0',
-      right: 'detail-play',
-      down: relatedFirstDownId,
+      right: previewPlayable ? 'detail-preview-mute' : 'detail-fullscreen',
+      down: previewPlayable ? 'detail-preview-mute' : relatedFirstDownId,
     }),
-    [relatedFirstDownId]
+    [relatedFirstDownId, previewPlayable]
   )
-  const spatialPlay = useTvSpatialNode(
-    'detail-play',
+
+  const spatialPreviewMute = useTvSpatialNode(
+    'detail-preview-mute',
+    () =>
+      !previewPlayable
+        ? {}
+        : {
+            up: 'detail-back',
+            right: 'detail-fullscreen',
+            down: relatedFirstDownId,
+          },
+    [previewPlayable, relatedFirstDownId]
+  )
+
+  const spatialFullscreen = useTvSpatialNode(
+    'detail-fullscreen',
     () => ({
-      left: 'detail-back',
+      left: previewPlayable ? 'detail-preview-mute' : 'detail-back',
       right: 'detail-playbtn',
       down: relatedFirstDownId,
     }),
-    [relatedFirstDownId]
+    [previewPlayable, relatedFirstDownId]
   )
   const spatialPlayBtn = useTvSpatialNode(
     'detail-playbtn',
     () => ({
       up: synopsisExpandable ? 'detail-desc-toggle' : undefined,
-      left: 'detail-play',
+      left: 'detail-fullscreen',
       right: 'detail-fav',
       down: 'detail-src-0',
     }),
@@ -525,7 +871,7 @@ export function DetailPage() {
   const hasPrevEpisodePage = episodePage > 0
   const hasNextEpisodePage = episodePage < episodeLastPage
 
-  /** 播放源 / 选集向下落地：单集时进推荐首张（无推荐则立即播放）；多集时先进翻页或首集格 */
+  /** 播放源 / 选集向下落地：单集时进推荐首张（无推荐则全屏播放按钮）；多集时先进翻页或首集格 */
   const episodeSectionEntryId =
     totalEpisodes <= 1
       ? relatedLen > 0
@@ -561,19 +907,39 @@ export function DetailPage() {
     >
       <div className="flex flex-shrink-0 items-start">
         <div className="w-[55%] flex-shrink-0 flex flex-col p-8 pb-4 pr-5 min-w-0">
-          <div className="relative w-full aspect-video rounded-2xl overflow-hidden shadow-[var(--shadow-elevated)] flex-shrink-0">
-            <img
-              src={movie.backdrop || movie.poster}
-              alt={movie.title}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 gradient-hero" />
-            <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
+          <div className="relative w-full aspect-video rounded-2xl overflow-hidden shadow-[var(--shadow-elevated)] flex-shrink-0 bg-black">
+            {isWebPlayableUrl(previewUrl) ? (
+              <>
+                <video
+                  key={`${movie.id}-${currentSource}-${selectedEpisode}-${previewUrl}`}
+                  ref={previewVideoRef}
+                  className={cn(
+                    'detail-preview-video absolute inset-0 z-[2] h-full w-full object-contain transition-opacity duration-200',
+                    previewFirstFrameReady ? 'opacity-100' : 'opacity-0'
+                  )}
+                  src={previewUrl}
+                  poster={VIDEO_TRANSPARENT_POSTER}
+                  playsInline
+                  muted={previewMuted}
+                  controls={false}
+                  preload="auto"
+                />
+                {previewUiLoading ? (
+                  <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black text-base text-muted-foreground">
+                    加载中
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="absolute inset-0 z-[1] flex items-center justify-center bg-black px-4 text-center text-sm text-muted-foreground">
+                当前线路无法在页面内预览，请使用右下角全屏进入播放页
+              </div>
+            )}
 
             <button
               type="button"
               {...spatialBack}
-              className="tv-focusable pill-focus absolute top-6 left-6 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm flex items-center justify-center z-10"
+              className="tv-focusable pill-focus absolute top-6 left-6 z-10 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm flex items-center justify-center"
               onClick={() => navigate(-1)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') navigate(-1)
@@ -582,28 +948,44 @@ export function DetailPage() {
               <ArrowLeft size={20} className="text-foreground" />
             </button>
 
-            {/* 居中不用 transform，避免 .tv-focusable:focus { transform: none } 抵消 translate 导致图标移位 */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
-              <button
-                type="button"
-                {...spatialPlay}
-                className="tv-focusable detail-hero-play pointer-events-auto w-20 h-20 rounded-full flex items-center justify-center hover:scale-110 focus:scale-100 focus-visible:scale-100"
-                onClick={() => navigate(`/player/${movie.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') navigate(`/player/${movie.id}`)
-                }}
-              >
-                <Play size={36} className="ml-1 shrink-0" fill="currentColor" />
-              </button>
-            </div>
+            <button
+              type="button"
+              {...spatialFullscreen}
+              className="tv-focusable pill-focus absolute bottom-6 right-6 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur-sm"
+              onClick={goPlayer}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') goPlayer()
+              }}
+              aria-label="全屏播放（续当前预览进度）"
+            >
+              <Maximize2 size={22} strokeWidth={2} />
+            </button>
 
-            <div className="absolute bottom-6 left-6 text-foreground">
-              <p className="text-sm text-muted-foreground">
-                正在播放:{' '}
-                <span className="inline-flex rounded-md bg-white/50 px-2 py-0.5 text-sm font-medium text-yellow-400 shadow-sm backdrop-blur-sm">
-                  更新至 {selectedEpisode} 集
-                </span>
-              </p>
+            <div className="absolute bottom-6 left-6 z-10 flex max-w-[calc(100%-5rem)] items-end gap-3 text-foreground">
+              {previewPlayable ? (
+                <button
+                  type="button"
+                  {...spatialPreviewMute}
+                  className="tv-focusable pill-focus flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur-sm"
+                  aria-label={previewMuted ? '开启声音' : '静音'}
+                  aria-pressed={!previewMuted}
+                  onClick={() => setPreviewMuted((m) => !m)}
+                >
+                  {previewMuted ? (
+                    <VolumeX size={22} strokeWidth={2} className="text-foreground" />
+                  ) : (
+                    <Volume2 size={22} strokeWidth={2} className="text-foreground" />
+                  )}
+                </button>
+              ) : null}
+              <div className="min-w-0 pb-0.5">
+                <p className="text-sm text-muted-foreground">
+                  正在播放:{' '}
+                  <span className="inline-flex rounded-md bg-white/50 px-2 py-0.5 text-sm font-medium text-yellow-400 shadow-sm backdrop-blur-sm">
+                    {totalEpisodes > 1 ? `第 ${selectedEpisode} 集` : '正片'}
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
 
@@ -616,6 +998,7 @@ export function DetailPage() {
                   index={i}
                   movie={m}
                   relatedLen={relatedMovies.length}
+                  relatedUpId={previewPlayable ? 'detail-preview-mute' : 'detail-fullscreen'}
                 />
               ))}
             </div>
@@ -660,13 +1043,14 @@ export function DetailPage() {
               type="button"
               {...spatialPlayBtn}
               className="tv-focusable detail-play-pill pill-focus flex items-center gap-2 px-6 py-2.5 rounded-full font-medium text-sm"
-              onClick={() => navigate(`/player/${movie.id}`)}
+              onClick={goPlayer}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') navigate(`/player/${movie.id}`)
+                if (e.key === 'Enter') goPlayer()
               }}
+              aria-label="全屏播放（续当前预览进度）"
             >
-              <Play size={16} fill="currentColor" />
-              立即播放
+              <Maximize2 size={18} strokeWidth={2} />
+              全屏播放
             </button>
             <button
               type="button"
@@ -704,6 +1088,7 @@ export function DetailPage() {
                   episodeSectionEntryId={episodeSectionEntryId}
                   currentSource={currentSource}
                   setCurrentSource={setCurrentSource}
+                  firstChipLeftId={relatedLen > 0 ? relatedRightmostId : 'detail-fullscreen'}
                 />
               ))}
             </div>
@@ -781,6 +1166,7 @@ function SourceChip({
   episodeSectionEntryId,
   currentSource,
   setCurrentSource,
+  firstChipLeftId,
 }: {
   label: string
   index: number
@@ -788,19 +1174,21 @@ function SourceChip({
   episodeSectionEntryId: string
   currentSource: number
   setCurrentSource: (n: number) => void
+  /** 首枚播放源「左」：有推荐时从最后一张推荐卡进入，否则从预览全屏角标 */
+  firstChipLeftId: string
 }) {
   const spatial = useTvSpatialNode(
     `detail-src-${index}`,
     () => ({
       up: 'detail-playbtn',
       down: episodeSectionEntryId,
-      left: index === 0 ? 'detail-play' : `detail-src-${index - 1}`,
+      left: index === 0 ? firstChipLeftId : `detail-src-${index - 1}`,
       right:
         index === sourcesLen - 1
           ? episodeSectionEntryId
           : `detail-src-${index + 1}`,
     }),
-    [index, sourcesLen, episodeSectionEntryId]
+    [index, sourcesLen, episodeSectionEntryId, firstChipLeftId]
   )
 
   return (

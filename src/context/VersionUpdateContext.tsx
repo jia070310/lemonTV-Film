@@ -13,8 +13,7 @@ import {
   isNewerThanCurrent,
   type RemoteReleaseInfo,
 } from '@/lib/githubRelease'
-
-const DISMISS_STORE_KEY = 'lemon-tv-update-banner-dismiss-version'
+import { VERSION_UPDATE_DISMISS_STORAGE_KEY } from '@/config/storageKeys'
 
 type VersionUpdateContextValue = {
   currentVersionName: string
@@ -50,7 +49,7 @@ export function VersionUpdateProvider({
     string | null
   >(() => {
     try {
-      return localStorage.getItem(DISMISS_STORE_KEY)
+      return localStorage.getItem(VERSION_UPDATE_DISMISS_STORAGE_KEY)
     } catch {
       return null
     }
@@ -97,7 +96,7 @@ export function VersionUpdateProvider({
   const dismissHomeBanner = useCallback(() => {
     if (!remote) return
     try {
-      localStorage.setItem(DISMISS_STORE_KEY, remote.versionName)
+      localStorage.setItem(VERSION_UPDATE_DISMISS_STORAGE_KEY, remote.versionName)
     } catch {
       /* ignore */
     }

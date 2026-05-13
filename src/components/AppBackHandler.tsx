@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { App } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
+import { consumePlayerPanelBack } from '@/lib/playerPanelBack'
 
 const DOUBLE_MS = 2000
 
@@ -47,6 +48,10 @@ export function AppBackHandler() {
     }
 
     if (normalized.startsWith('/player/')) {
+      if (consumePlayerPanelBack()) {
+        pendingRef.current = null
+        return
+      }
       const rest = normalized.slice('/player/'.length)
       const id = rest.split('/')[0] ?? ''
       if (!id) {

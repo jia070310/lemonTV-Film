@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 仅原生闪屏用，与 Web 启动黄一致；勿与桌面图标透明底混用 -->
+    <color name="splash_screen_background">#FACC15</color>
+</resources>

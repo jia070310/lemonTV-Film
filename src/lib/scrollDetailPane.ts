@@ -1,6 +1,6 @@
 /**
  * Detail page: episode strip may scroll locally; main column uses `#tv-main-content`.
- * When focus is on the top row (播放/返回/立即播放/收藏), reset episode strip scroll.
+ * When focus is on the top row (全屏播放/返回/全屏角标/收藏), reset episode strip scroll.
  */
 
 function resetDetailEpisodeInnerScroll(): void {

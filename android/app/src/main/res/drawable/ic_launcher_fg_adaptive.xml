@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:bottom="@dimen/adaptive_icon_fg_inset"
+        android:left="@dimen/adaptive_icon_fg_inset"
+        android:right="@dimen/adaptive_icon_fg_inset"
+        android:top="@dimen/adaptive_icon_fg_inset">
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/lom_logo" />
+    </item>
+</layer-list>

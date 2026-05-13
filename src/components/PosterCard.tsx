@@ -14,6 +14,12 @@ interface PosterCardProps {
   /** Spread onto the poster (cover) node — use with focusable={false} for TV spatial */
   posterShellProps?: Omit<ComponentPropsWithoutRef<'div'>, 'children'>
   className?: string
+  /** 若提供则点击进入该路径（如播放记录进全屏续播），否则进详情 */
+  navigateHref?: string
+  /** 收藏管理：勾选模式，点击海报切换勾选而非跳转 */
+  selectionMode?: boolean
+  selected?: boolean
+  onSelectionToggle?: () => void
 }
 
 export function PosterCard({
@@ -24,6 +30,10 @@ export function PosterCard({
   focusable = true,
   posterShellProps,
   className,
+  navigateHref,
+  selectionMode = false,
+  selected = false,
+  onSelectionToggle,
 }: PosterCardProps) {
   const navigate = useNavigate()
 
@@ -44,7 +54,13 @@ export function PosterCard({
 
   const posterShellInteractive = focusable || Boolean(posterShellProps)
 
-  const go = () => navigate(`/detail/${movie.id}`)
+  const go = () => {
+    if (selectionMode) {
+      onSelectionToggle?.()
+      return
+    }
+    navigate(navigateHref ?? `/detail/${movie.id}`)
+  }
 
   return (
     <div
@@ -61,6 +77,7 @@ export function PosterCard({
         className={cn(
           posterShellInteractive && 'poster-focus tv-focusable',
           'relative aspect-[2/3] overflow-hidden rounded-lg tv-card outline-none',
+          selectionMode && selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
           shellClass
         )}
         onKeyDown={(e) => {
@@ -90,6 +107,19 @@ export function PosterCard({
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted px-2 text-center text-[11px] text-muted-foreground">
             无封面
+          </div>
+        )}
+        {selectionMode && (
+          <div
+            className="pointer-events-none absolute left-2 top-2 z-[4] flex h-6 w-6 items-center justify-center rounded border-2 border-white/90 bg-black/55 shadow-md"
+            aria-hidden
+          >
+            <span
+              className={cn(
+                'block h-3 w-3 rounded-sm border border-white',
+                selected ? 'bg-primary border-primary' : 'bg-transparent'
+              )}
+            />
           </div>
         )}
         {movie.tag && (

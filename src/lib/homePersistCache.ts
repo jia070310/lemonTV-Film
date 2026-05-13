@@ -48,3 +48,36 @@ export function persistGridMovies(categoryIndex: number, movies: Movie[]): void 
     // ignore
   }
 }
+
+const GRID_KEY_PREFIX = 'lemonTv.home.grid.v1.'
+
+/** 粗略估算首页相关 localStorage 占用（UTF-16 近似：键长+值长）×2 */
+export function estimateHomePersistByteSize(): number {
+  if (typeof localStorage === 'undefined') return 0
+  let bytes = 0
+  const measure = (key: string) => {
+    const v = localStorage.getItem(key)
+    if (v !== null) bytes += (key.length + v.length) * 2
+  }
+  measure(HERO_KEY)
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k?.startsWith(GRID_KEY_PREFIX)) measure(k)
+  }
+  return bytes
+}
+
+/** 移除首页海报与各分类列表的持久化条目，返回删除的键数量 */
+export function clearAllHomePersistCache(): number {
+  if (typeof localStorage === 'undefined') return 0
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (!k) continue
+    if (k === HERO_KEY || k.startsWith(GRID_KEY_PREFIX)) keysToRemove.push(k)
+  }
+  for (const k of keysToRemove) {
+    localStorage.removeItem(k)
+  }
+  return keysToRemove.length
+}

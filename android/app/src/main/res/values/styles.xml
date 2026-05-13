@@ -17,6 +17,12 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <!-- API 31+ 系统闪屏：必须单独指定，否则会默认用「桌面自适应图标」作中心图（透明底时合成异常） -->
+        <item name="android:windowSplashScreenBackground">@color/splash_screen_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_anim_icon</item>
+        <item name="windowSplashScreenBackground">@color/splash_screen_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_anim_icon</item>
         <item name="android:background">@drawable/splash</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

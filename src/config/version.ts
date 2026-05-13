@@ -1,5 +1,5 @@
 /** 与 android/app/build.gradle 中 versionName 保持一致，用于与 Release tag 比对 */
-export const APP_VERSION_NAME = '1.0'
+export const APP_VERSION_NAME = '1.0.0'
 
 /** 开源仓库主页（展示在「关于」中） */
 export const APP_REPO_PAGE_URL = 'https://github.com/jia070310/lemonTV-Film'
@@ -10,7 +10,7 @@ export const GITHUB_RELEASES_LATEST_API =
 
 /**
  * 与 LomenTV VersionCheckService 一致：x.y.z → 可比较大整数
- * 例：1.0 → 100，1.0.1 → 10001
+ * 例：1.0 → 100，1.0.0 → 10000
  */
 export function parseVersionCode(versionName: string): number {
   const parts = versionName.replace(/^v/i, '').split('.').filter(Boolean)

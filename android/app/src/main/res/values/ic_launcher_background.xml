@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- 自适应图标底层：透明（桌面壁纸透出）；图案在前景 lom_logo -->
+    <color name="ic_launcher_background">#00000000</color>
 </resources>

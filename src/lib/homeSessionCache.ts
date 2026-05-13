@@ -45,6 +45,12 @@ export function writeGridSessionCache(categoryIndex: number, movies: Movie[]): v
   persistGridMovies(categoryIndex, movies)
 }
 
+/** 清空内存中的首页会话缓存（与 clearAllHomePersistCache 配合使用） */
+export function clearHomeSessionMemory(): void {
+  heroEntry = null
+  gridByCategoryIndex.clear()
+}
+
 /** 用于静默刷新：列表顺序与关键展示字段一致则视为同一条数据，避免无意义 setState */
 export function homeHeroStripEqual(a: Movie[], b: Movie[]): boolean {
   if (a === b) return true

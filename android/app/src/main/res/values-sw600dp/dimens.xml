@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 平板 / TV：原生闪屏中心 logo 再放大一档 -->
+    <dimen name="splash_center_icon_dp">400dp</dimen>
+</resources>
