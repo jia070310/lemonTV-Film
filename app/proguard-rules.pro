@@ -1,4 +1,4 @@
-# Add project specific ProGuard rules here.
+﻿# Add project specific ProGuard rules here.
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
 #
@@ -21,10 +21,10 @@
 #-renamesourcefileattribute SourceFile
 
 # Keep Room entities
--keep class com.lomen.tv.data.local.database.entity.** { *; }
+-keep class com.lemon.yingshi.tv.data.local.database.entity.** { *; }
 
 # Keep Retrofit models
--keep class com.lomen.tv.data.remote.model.** { *; }
+-keep class com.lemon.yingshi.tv.data.remote.model.** { *; }
 
 # ExoPlayer
 -keep class com.google.android.exoplayer2.** { *; }

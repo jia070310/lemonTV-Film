@@ -8,15 +8,15 @@ plugins {
 }
 
 android {
-    namespace = "com.lomen.tv"
+    namespace = "com.lemon.yingshi.tv"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.lomen.tv"
+        applicationId = "com.lemon.yingshi.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10021
-        versionName = "1.0.21"
+        versionCode = 10000
+        versionName = "1.0.0"
 
         // TV-specific configurations
         vectorDrawables.useSupportLibrary = true
@@ -24,7 +24,7 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("../lomenTV.jks")
+            storeFile = rootProject.file("lomenTV.jks")
             storePassword = "lomenTV123"
             keyAlias = "lomenTV"
             keyPassword = "lomenTV123"
