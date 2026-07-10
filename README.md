@@ -6,7 +6,7 @@
 - 当前版本：**v1.0.0**（versionCode **10000**）
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
-成品APP服务器地址为空，需要用户自行部署MACCMS服务器，可以利用NAS部署网站，然后填入局域网地址测试通过就可以看了。
+成品APP服务器地址为空，需要用户自行部署MACCMS服务器，可以利用NAS部署网站，然后填入局域网地址测试通过就可以看了。也可以网上查找MACCMS服务器部署的网站，前提条件是这个服务器开启了API，要不然是提取不到数据的。
 这里推荐一个网址 https://xsd.sdzyapi.com
 ## 功能特性
 
