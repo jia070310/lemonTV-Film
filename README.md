@@ -4,6 +4,7 @@
 
 - 包名：`com.lemon.yingshi.tv`
 - 当前版本：**v1.0.0**（versionCode **10000**）
+- 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
 成品APP服务器地址为空，需要用户自行部署MACCMS服务器，可以利用NAS部署网站，然后填入局域网地址测试通过就可以看了。
 这里推荐一个网址 https://xsd.sdzyapi.com
