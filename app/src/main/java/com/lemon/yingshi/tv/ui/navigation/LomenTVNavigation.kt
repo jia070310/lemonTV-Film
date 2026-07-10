@@ -13,7 +13,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
 import com.lemon.yingshi.tv.ui.player.PlayerActivity
 import com.lemon.yingshi.tv.ui.screens.detail.DetailScreen
 import com.lemon.yingshi.tv.ui.screens.filter.FilterScreen
@@ -38,11 +37,9 @@ sealed class Screen(val route: String) {
             "player/$mediaId/${episodeId ?: "null"}"
     }
     data object RecentWatching : Screen("recent_watching")
-    data object Filter : Screen("filter?typeId={typeId}&nav={nav}") {
-        fun createRoute(typeId: Int = -1, navCategory: MacCmsHomeNavCategory? = null): String {
-            val nav = navCategory?.name.orEmpty()
-            return "filter?typeId=$typeId&nav=$nav"
-        }
+    data object Filter : Screen("filter?typeId={typeId}&navTypeId={navTypeId}") {
+        fun createRoute(typeId: Int = -1, navTypeId: Int = -1): String =
+            "filter?typeId=$typeId&navTypeId=$navTypeId"
     }
 }
 
@@ -73,8 +70,8 @@ fun LomenTVNavigation(
                     onNavigateToRecentWatching = {
                         navController.navigate(Screen.RecentWatching.route)
                     },
-                    onNavigateToFilter = { typeId, navCategory ->
-                        navController.navigate(Screen.Filter.createRoute(typeId, navCategory))
+                    onNavigateToFilter = { typeId, navTypeId ->
+                        navController.navigate(Screen.Filter.createRoute(typeId, navTypeId))
                     },
                     onPlayFromHistory = { historyItem ->
                         CoroutineScope(Dispatchers.Main).launch {
@@ -179,9 +176,9 @@ fun LomenTVNavigation(
                         type = NavType.IntType
                         defaultValue = -1
                     },
-                    navArgument("nav") {
-                        type = NavType.StringType
-                        defaultValue = ""
+                    navArgument("navTypeId") {
+                        type = NavType.IntType
+                        defaultValue = -1
                     }
                 )
             ) {

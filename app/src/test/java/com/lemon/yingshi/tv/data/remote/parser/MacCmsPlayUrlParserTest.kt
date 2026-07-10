@@ -48,4 +48,17 @@ class MacCmsPlayUrlParserTest {
         assertEquals("\u7ebf\u8def1", sources[0].name)
         assertEquals("\u7ebf\u8def2", sources[1].name)
     }
+
+    @Test
+    fun parse_doesNotUsePlayerCodeAsDisplayName() {
+        val playFrom = "sdm3u8${groupSep}subm3u8"
+        val playNote = "sdm3u8${groupSep}subm3u8"
+        val playUrl = "\u7b2c1\u96c6${dollar}https://example.com/a.m3u8${groupSep}\u7b2c1\u96c6${dollar}https://example.com/b.m3u8"
+
+        val sources = MacCmsPlayUrlParser.parse(playFrom, playUrl, playNote)
+
+        assertEquals(2, sources.size)
+        assertEquals("\u7ebf\u8def1", sources[0].name)
+        assertEquals("\u7ebf\u8def2", sources[1].name)
+    }
 }

@@ -10,8 +10,9 @@ import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeItem
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.data.remote.parser.MacCmsAssetUrl
 import com.lemon.yingshi.tv.data.remote.parser.MacCmsPlayerConfigParser
+import com.lemon.yingshi.tv.data.remote.parser.MacCmsVersionDetector
 import com.lemon.yingshi.tv.domain.model.MacCmsFilterSupport
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
+import com.lemon.yingshi.tv.domain.model.MacCmsNavCategory
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,10 +45,83 @@ class MacCmsRepository @Inject constructor(
     @Volatile
     private var cachedPlayerConfigBaseUrl: String? = null
 
+    @Volatile
+    private var cachedTaxonomy: MacCmsTaxonomy? = null
+
+    @Volatile
+    private var cachedTaxonomyUrl: String? = null
+
+    fun invalidateTaxonomyCache() {
+        cachedTaxonomy = null
+        cachedTaxonomyUrl = null
+    }
+
+    /**
+     * 拉取分类树：优先 REST `/type/get_list/`，不可用时回退到 provide/vod 的 class 字段。
+     */
+    suspend fun fetchTaxonomy(forceRefresh: Boolean = false, baseUrlOverride: String? = null): MacCmsTaxonomy {
+        val baseUrl = macCmsPreferences.normalizeBaseUrl(
+            baseUrlOverride ?: getServerUrl()
+        )
+        if (baseUrl.isBlank()) {
+            throw IllegalStateException("未配置 MacCMS 服务器")
+        }
+
+        if (!forceRefresh && cachedTaxonomy != null && cachedTaxonomyUrl == baseUrl) {
+            return cachedTaxonomy!!
+        }
+
+        val taxonomy = fetchTaxonomyFromRest(baseUrl)
+            ?: fetchTaxonomyFromProvide(baseUrl)
+            ?: throw IllegalStateException("无法获取服务器分类，请确认已开启视频 API")
+
+        if (taxonomy.topCategories.isEmpty()) {
+            throw IllegalStateException("服务器分类数据为空")
+        }
+
+        cachedTaxonomy = taxonomy
+        cachedTaxonomyUrl = baseUrl
+        return taxonomy
+    }
+
+    /** REST 分类树（需后台开启「公共 API」） */
+    private suspend fun fetchTaxonomyFromRest(baseUrl: String): MacCmsTaxonomy? = runCatching {
+        val url = "$baseUrl/api.php/type/get_list/"
+        val response = macCmsApi.fetchTypeList(url)
+        if (!response.isSuccessful) return@runCatching null
+        val body = response.body() ?: return@runCatching null
+        if (body.code != 1) return@runCatching null
+        val rows = body.info?.rows.orEmpty()
+        if (rows.isEmpty()) return@runCatching null
+        val taxonomy = MacCmsTaxonomy.fromServerTypes(rows)
+        taxonomy.takeIf { it.topCategories.isNotEmpty() }
+    }.getOrNull()
+
+    /** 采集接口 class 字段（兼容大多数 MacCMS 站点） */
+    private suspend fun fetchTaxonomyFromProvide(baseUrl: String): MacCmsTaxonomy? = runCatching {
+        val response = macCmsApi.fetchVodList(
+            buildListUrl(baseUrl, MacCmsFilterParams(page = 1, pageSize = 1))
+        )
+        if (!response.isSuccessful) return@runCatching null
+        val body = response.body() ?: return@runCatching null
+        if (body.code != 1) return@runCatching null
+        val classes = body.categories
+        if (classes.isEmpty()) return@runCatching null
+        val taxonomy = MacCmsTaxonomy.fromFlatTypeItems(classes)
+        taxonomy.takeIf { it.topCategories.isNotEmpty() }
+    }.getOrNull()
+
     suspend fun getServerUrl(): String = macCmsPreferences.serverUrl.first()
 
     suspend fun saveServerUrl(url: String) {
+        val oldUrl = getServerUrl()
+        val normalizedNew = macCmsPreferences.normalizeBaseUrl(url)
         macCmsPreferences.saveServerUrl(url)
+        if (oldUrl != normalizedNew) {
+            invalidateTaxonomyCache()
+            cachedPlayerShowNames = emptyMap()
+            cachedPlayerConfigBaseUrl = null
+        }
     }
 
     suspend fun testConnection(url: String? = null): MacCmsConnectionResult {
@@ -75,13 +150,31 @@ class MacCmsRepository @Inject constructor(
                 return MacCmsConnectionResult(success = false, message = msg)
             }
 
-            macCmsPreferences.saveConnectionTestResult("已连接", baseUrl)
             refreshPlayerShowNames(baseUrl)
+            val taxonomy = runCatching {
+                fetchTaxonomy(forceRefresh = true, baseUrlOverride = baseUrl)
+            }.getOrNull()
+            val versionProbe = probeMacCmsVersion(
+                baseUrl = baseUrl,
+                restTypeApiAvailable = taxonomy?.sourceLabel == MacCmsTaxonomy.SOURCE_REST
+            )
+            val maccmsVersionLabel = MacCmsVersionDetector.formatVersionLabel(versionProbe)
+            val categoryCount = taxonomy?.categoryCount ?: 0
+            val apiSource = taxonomy?.sourceLabel
+            macCmsPreferences.saveConnectionTestResult(
+                status = "已连接",
+                siteName = baseUrl,
+                maccmsVersion = maccmsVersionLabel,
+                categoryCount = categoryCount,
+                apiSourceLabel = apiSource
+            )
             MacCmsConnectionResult(
                 success = true,
                 message = MacCmsErrorMessages.connectionSuccess(),
-                categoryCount = MacCmsTaxonomy.allSecondaryTypeIds().size + 4,
-                siteName = baseUrl
+                categoryCount = categoryCount,
+                siteName = baseUrl,
+                apiSourceLabel = apiSource,
+                maccmsVersionLabel = maccmsVersionLabel
             )
         } catch (e: Exception) {
             val msg = MacCmsErrorMessages.fromThrowable(e, "网络异常")
@@ -90,20 +183,21 @@ class MacCmsRepository @Inject constructor(
         }
     }
 
-    /** 筛选页分类：使用本地 taxonomy，与参考项目一致 */
-    fun getFilterCategories(): List<MacCmsTypeItem> =
-        MacCmsTaxonomy.filterCategories().map { (typeId, label) ->
+    /** 筛选页分类：使用当前服务器 taxonomy */
+    suspend fun getFilterCategories(): List<MacCmsTypeItem> =
+        fetchTaxonomy().filterCategories().map { (typeId, label) ->
             MacCmsTypeItem(typeId = typeId, typeName = label)
         }
 
     suspend fun fetchLatestForNavCategory(
-        category: MacCmsHomeNavCategory,
+        category: MacCmsNavCategory,
+        taxonomy: MacCmsTaxonomy,
         limit: Int = 10
     ): MacCmsCategoryFetchResult {
-        val typeIds = MacCmsTaxonomy.listQueryTypeIds(category)
+        val typeIds = taxonomy.listQueryTypeIds(category)
         if (typeIds.isEmpty()) return MacCmsCategoryFetchResult(emptyList(), 0)
 
-        val allow = MacCmsTaxonomy.allowedTypeIds(category)
+        val allow = taxonomy.allowedTypeIds(category)
         val seen = mutableSetOf<Int>()
         val pool = mutableListOf<MacCmsVodItem>()
         var lastError: String? = null
@@ -365,10 +459,13 @@ class MacCmsRepository @Inject constructor(
         }
     }
 
-    suspend fun getPlayerShowNames(): Map<String, String> {
-        val baseUrl = getServerUrl()
+    suspend fun getPlayerShowNames(forceRefresh: Boolean = false): Map<String, String> {
+        val baseUrl = macCmsPreferences.normalizeBaseUrl(getServerUrl())
         if (baseUrl.isBlank()) return emptyMap()
-        if (cachedPlayerShowNames.isNotEmpty() && cachedPlayerConfigBaseUrl == baseUrl) {
+        if (!forceRefresh &&
+            cachedPlayerShowNames.isNotEmpty() &&
+            cachedPlayerConfigBaseUrl == baseUrl
+        ) {
             return cachedPlayerShowNames
         }
         return refreshPlayerShowNames(baseUrl)
@@ -379,19 +476,35 @@ class MacCmsRepository @Inject constructor(
             val normalizedBase = macCmsPreferences.normalizeBaseUrl(baseUrl)
             if (normalizedBase.isBlank()) return@withContext emptyMap()
 
-            runCatching {
-                val url = "${normalizedBase.trimEnd('/')}/static/js/playerconfig.js"
-                val request = Request.Builder().url(url).get().build()
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@withContext emptyMap()
-                    val body = response.body?.string().orEmpty()
-                    val names = MacCmsPlayerConfigParser.parsePlayerShowNames(body)
+            val candidateUrls = listOf(
+                "${normalizedBase.trimEnd('/')}/static/js/playerconfig.js",
+                "${normalizedBase.trimEnd('/')}/static_new/js/playerconfig.js"
+            )
+
+            for (url in candidateUrls) {
+                val names = fetchPlayerShowNamesFromUrl(url)
+                if (names.isNotEmpty()) {
                     cachedPlayerShowNames = names
                     cachedPlayerConfigBaseUrl = normalizedBase
-                    names
+                    return@withContext names
                 }
-            }.getOrElse { emptyMap() }
+            }
+            emptyMap()
         }
+    }
+
+    private fun fetchPlayerShowNamesFromUrl(url: String): Map<String, String> {
+        return runCatching {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36")
+                .get()
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyMap()
+                MacCmsPlayerConfigParser.parsePlayerShowNames(response.body?.string().orEmpty())
+            }
+        }.getOrDefault(emptyMap())
     }
 
     suspend fun fetchVodDetail(vodId: Int): MacCmsVodItem? {
@@ -505,5 +618,41 @@ class MacCmsRepository @Inject constructor(
             java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
                 .parse(time.replace('-', '/'))?.time ?: 0L
         }.getOrDefault(0L)
+    }
+
+    private suspend fun probeMacCmsVersion(
+        baseUrl: String,
+        restTypeApiAvailable: Boolean
+    ): MacCmsVersionDetector.ProbeResult = withContext(Dispatchers.IO) {
+        val xmlUrls = listOf(
+            "$baseUrl/api.php/provide/vod/?ac=list&at=xml&pagesize=1",
+            "$baseUrl/api.php/provide/vod/at/xml/?ac=list&pagesize=1"
+        )
+        var protocolVersion: String? = null
+        for (url in xmlUrls) {
+            val xml = fetchHttpText(url)?.take(4096).orEmpty()
+            protocolVersion = MacCmsVersionDetector.parseProvideXmlProtocolVersion(xml)
+            if (protocolVersion != null) break
+        }
+
+        val homepageVersion = fetchHttpText(baseUrl)
+            ?.take(65536)
+            ?.let { MacCmsVersionDetector.parseHomepageVersionCode(it) }
+
+        MacCmsVersionDetector.ProbeResult(
+            provideProtocolVersion = protocolVersion,
+            homepageVersionCode = homepageVersion,
+            restTypeApiAvailable = restTypeApiAvailable
+        )
+    }
+
+    private suspend fun fetchHttpText(url: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder().url(url).get().build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                response.body?.string()
+            }
+        }.getOrNull()
     }
 }

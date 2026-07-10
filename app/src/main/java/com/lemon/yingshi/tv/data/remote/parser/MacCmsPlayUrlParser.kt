@@ -6,6 +6,7 @@ import com.lemon.yingshi.tv.data.remote.model.MacCmsPlaySource
 object MacCmsPlayUrlParser {
 
     private const val GROUP_SEPARATOR = "$$$"
+    private val playerCodePattern = Regex("""^[a-zA-Z0-9_-]+$""")
 
     fun parse(
         vodPlayFrom: String?,
@@ -52,18 +53,46 @@ object MacCmsPlayUrlParser {
         noteNames: List<String>,
         playerShowNames: Map<String, String>
     ): String {
-        sourceCodes.getOrNull(index)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { code ->
-                playerShowNames[code]?.takeIf { it.isNotBlank() }?.let { return it }
-                noteNames.getOrNull(index)?.takeIf { it.isNotBlank() }?.let { return it }
-            }
-
-        noteNames.getOrNull(index)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return it }
+        val code = sourceCodes.getOrNull(index)?.trim().orEmpty()
+        if (code.isNotBlank()) {
+            lookupPlayerShowName(code, playerShowNames)?.let { return it }
+            noteNames.getOrNull(index)
+                ?.trim()
+                ?.takeIf { isDisplayName(it, sourceCodes) }
+                ?.let { return it }
+        } else {
+            noteNames.getOrNull(index)
+                ?.trim()
+                ?.takeIf { isDisplayName(it, sourceCodes) }
+                ?.let { return it }
+        }
 
         return "线路${index + 1}"
+    }
+
+    private fun lookupPlayerShowName(code: String, playerShowNames: Map<String, String>): String? {
+        playerShowNames[code]?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        return playerShowNames.entries
+            .firstOrNull { it.key.equals(code, ignoreCase = true) }
+            ?.value
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun isDisplayName(name: String, sourceCodes: List<String>): Boolean {
+        if (name.isBlank()) return false
+        if (sourceCodes.any { it.equals(name, ignoreCase = true) }) return false
+        if (name.contains(GROUP_SEPARATOR)) return false
+        if (containsCjk(name)) return true
+        return !looksLikePlayerCode(name)
+    }
+
+    private fun containsCjk(value: String): Boolean =
+        value.any { char -> char.code in 0x4E00..0x9FFF }
+
+    private fun looksLikePlayerCode(value: String): Boolean {
+        if (value.length > 24) return false
+        return playerCodePattern.matches(value)
     }
 
     private fun parseSegment(segment: String): MacCmsEpisodeUrl? {

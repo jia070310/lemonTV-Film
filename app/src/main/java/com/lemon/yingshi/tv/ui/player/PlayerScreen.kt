@@ -1627,6 +1627,12 @@ private fun PlayerControls(
     }
 }
 
+private fun FocusRequester.tryRequestFocus(): Boolean =
+    runCatching {
+        requestFocus()
+        true
+    }.getOrDefault(false)
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun EpisodeListPanel(
@@ -1694,10 +1700,10 @@ private fun EpisodeListPanel(
         currentPage = initialPage
     }
 
-    LaunchedEffect(safePage, sortedEpisodes, currentEpisodeId, focusIndexInPage) {
-        if (sortedEpisodes.isNotEmpty()) {
+    LaunchedEffect(safePage, sortedEpisodes, currentEpisodeId, focusIndexInPage, pageEpisodes.size) {
+        if (sortedEpisodes.isNotEmpty() && pageEpisodes.isNotEmpty()) {
             delay(120)
-            runCatching { initialFocusRequester.requestFocus() }
+            cellFocusRequesters.getOrNull(focusIndexInPage)?.tryRequestFocus()
         }
     }
 

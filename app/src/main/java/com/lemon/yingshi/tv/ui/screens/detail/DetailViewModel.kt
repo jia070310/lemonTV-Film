@@ -106,7 +106,10 @@ class DetailViewModel @Inject constructor(
                 return
             }
 
-            val playerNames = macCmsRepository.getPlayerShowNames()
+            var playerNames = macCmsRepository.getPlayerShowNames()
+            if (playerNames.isEmpty()) {
+                playerNames = macCmsRepository.getPlayerShowNames(forceRefresh = true)
+            }
             macCmsPlaySources = MacCmsPlayUrlParser.parse(
                 vodPlayFrom = vod.vodPlayFrom,
                 vodPlayUrl = vod.vodPlayUrl,

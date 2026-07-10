@@ -9,7 +9,7 @@ import com.lemon.yingshi.tv.data.repository.FilterCatalogContinuation
 import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
 import com.lemon.yingshi.tv.domain.model.MacCmsFilterSupport
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
+import com.lemon.yingshi.tv.domain.model.MacCmsNavCategory
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,13 +26,12 @@ class FilterViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val initialTypeId: Int = savedStateHandle.get<Int>("typeId") ?: -1
-    private val initialNavCategory: MacCmsHomeNavCategory? =
-        savedStateHandle.get<String>("nav")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { name -> MacCmsHomeNavCategory.entries.find { it.name == name } }
+    private val initialNavTypeId: Int = savedStateHandle.get<Int>("navTypeId") ?: -1
 
     private val _uiState = MutableStateFlow(FilterUiState())
     val uiState: StateFlow<FilterUiState> = _uiState.asStateFlow()
+
+    private var taxonomy: MacCmsTaxonomy? = null
 
     private var catalogContinuation: FilterCatalogContinuation? = null
     private var catalogPool: List<MacCmsVodItem> = emptyList()
@@ -61,23 +60,40 @@ class FilterViewModel @Inject constructor(
             }
 
             try {
+                val loadedTaxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = true)
+                taxonomy = loadedTaxonomy
+                val treeCategories = loadedTaxonomy.filterTreeCategories()
+
                 val initialNav = when {
-                    initialTypeId > 0 -> MacCmsTaxonomy.navCategoryForTypeId(initialTypeId)
-                    initialNavCategory != null -> initialNavCategory
+                    initialTypeId > 0 -> loadedTaxonomy.navCategoryForTypeId(initialTypeId)
+                    initialNavTypeId > 0 -> loadedTaxonomy.navCategoryByTypeId(initialNavTypeId)
                     else -> null
-                } ?: MacCmsHomeNavCategory.TV
+                } ?: loadedTaxonomy.topCategories.firstOrNull()
+                if (initialNav == null) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isConfigured = true,
+                            error = "服务器未返回可用分类"
+                        )
+                    }
+                    return@launch
+                }
+
                 val initialSelectedTypeId = if (initialTypeId > 0) initialTypeId else 0
                 val initialExpanded = when {
-                    initialTypeId > 0 -> initialNav
-                    initialNavCategory != null -> initialNav
+                    initialTypeId > 0 -> initialNav.typeId
+                    initialNavTypeId > 0 -> initialNav.typeId
                     else -> null
                 }
 
                 _uiState.update {
                     it.copy(
                         isConfigured = true,
-                        expandedNavCategory = initialExpanded,
-                        selectedNavCategory = initialNav,
+                        treeCategories = treeCategories,
+                        expandedNavTypeId = initialExpanded,
+                        selectedNavTypeId = initialNav.typeId,
+                        selectedNavLabel = initialNav.label,
                         selectedTypeId = initialSelectedTypeId,
                         isLoading = false
                     )
@@ -94,13 +110,14 @@ class FilterViewModel @Inject constructor(
         }
     }
 
-    fun selectNavCategory(category: MacCmsHomeNavCategory) {
+    fun selectNavCategory(category: MacCmsNavCategory) {
         val state = _uiState.value
-        val shouldCollapse = state.expandedNavCategory == category && state.selectedTypeId == 0
+        val shouldCollapse = state.expandedNavTypeId == category.typeId && state.selectedTypeId == 0
         _uiState.update {
             it.copy(
-                expandedNavCategory = if (shouldCollapse) null else category,
-                selectedNavCategory = category,
+                expandedNavTypeId = if (shouldCollapse) null else category.typeId,
+                selectedNavTypeId = category.typeId,
+                selectedNavLabel = category.label,
                 selectedTypeId = 0,
                 selectedArea = "",
                 selectedLang = "",
@@ -115,12 +132,14 @@ class FilterViewModel @Inject constructor(
     }
 
     fun selectSecondaryType(typeId: Int) {
-        val nav = MacCmsTaxonomy.navCategoryForTypeId(typeId) ?: return
-        if (_uiState.value.selectedNavCategory == nav && _uiState.value.selectedTypeId == typeId) return
+        val tax = taxonomy ?: return
+        val nav = tax.navCategoryForTypeId(typeId) ?: return
+        if (_uiState.value.selectedNavTypeId == nav.typeId && _uiState.value.selectedTypeId == typeId) return
         _uiState.update {
             it.copy(
-                expandedNavCategory = nav,
-                selectedNavCategory = nav,
+                expandedNavTypeId = nav.typeId,
+                selectedNavTypeId = nav.typeId,
+                selectedNavLabel = nav.label,
                 selectedTypeId = typeId,
                 selectedArea = "",
                 selectedLang = "",
@@ -189,11 +208,12 @@ class FilterViewModel @Inject constructor(
 
     private fun loadResults(reset: Boolean) {
         viewModelScope.launch {
+            val tax = taxonomy ?: return@launch
             val state = _uiState.value
-            val typeIds = MacCmsTaxonomy.filterTypeIdsForSelection(
-                state.selectedNavCategory,
-                state.selectedTypeId
-            )
+            val navCategory = tax.navCategoryByTypeId(state.selectedNavTypeId)
+                ?: tax.topCategories.firstOrNull()
+                ?: return@launch
+            val typeIds = tax.filterTypeIdsForSelection(navCategory, state.selectedTypeId)
             if (typeIds.isEmpty()) return@launch
 
             val generation = if (reset) ++loadGeneration else loadGeneration
@@ -220,7 +240,7 @@ class FilterViewModel @Inject constructor(
                 } else {
                     catalogPool.size + MacCmsFilterSupport.FILTER_UI_PAGE_SIZE
                 }
-                val allowed = MacCmsTaxonomy.allowedTypeIds(state.selectedNavCategory)
+                val allowed = tax.allowedTypeIds(navCategory)
                 val result = macCmsRepository.advanceFilterCatalog(
                     filter = filter,
                     continuation = if (reset) null else catalogContinuation,
@@ -272,17 +292,18 @@ class FilterViewModel @Inject constructor(
         viewModelScope.launch {
             if (isLoadingMore) return@launch
             isLoadingMore = true
+            val tax = taxonomy ?: return@launch
             val state = _uiState.value
             val generation = loadGeneration
             _uiState.update { it.copy(isLoadingMore = true) }
 
             try {
-                val typeIds = MacCmsTaxonomy.filterTypeIdsForSelection(
-                    state.selectedNavCategory,
-                    state.selectedTypeId
-                )
+                val navCategory = tax.navCategoryByTypeId(state.selectedNavTypeId)
+                    ?: tax.topCategories.firstOrNull()
+                    ?: return@launch
+                val typeIds = tax.filterTypeIdsForSelection(navCategory, state.selectedTypeId)
                 val filter = buildFilterState(state, typeIds)
-                val allowed = MacCmsTaxonomy.allowedTypeIds(state.selectedNavCategory)
+                val allowed = tax.allowedTypeIds(navCategory)
                 val result = macCmsRepository.advanceFilterCatalog(
                     filter = filter,
                     continuation = catalogContinuation,
@@ -384,9 +405,10 @@ data class FilterUiState(
     val isConfigured: Boolean = false,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val treeCategories: List<MacCmsTaxonomy.FilterTreeCategory> = MacCmsTaxonomy.filterTreeCategories(),
-    val expandedNavCategory: MacCmsHomeNavCategory? = null,
-    val selectedNavCategory: MacCmsHomeNavCategory = MacCmsHomeNavCategory.TV,
+    val treeCategories: List<MacCmsTaxonomy.FilterTreeCategory> = emptyList(),
+    val expandedNavTypeId: Int? = null,
+    val selectedNavTypeId: Int = 0,
+    val selectedNavLabel: String = "",
     val selectedTypeId: Int = 0,
     val items: List<MacCmsVodItem> = emptyList(),
     val selectedArea: String = "",
@@ -401,7 +423,7 @@ data class FilterUiState(
     val error: String? = null
 ) {
     private val filterOptions: MacCmsFilterSupport.FilterOptionRow
-        get() = MacCmsFilterSupport.filterOptionsFor(selectedNavCategory)
+        get() = MacCmsFilterSupport.filterOptionsFor(selectedNavLabel)
 
     val plotOptions: List<String> get() = filterOptions.plot
     val areaOptions: List<String> get() = filterOptions.area
@@ -411,9 +433,12 @@ data class FilterUiState(
 
     val selectedCategoryName: String
         get() = if (selectedTypeId > 0) {
-            MacCmsTaxonomy.secondaryLabel(selectedTypeId)
+            treeCategories
+                .flatMap { it.children }
+                .find { it.typeId == selectedTypeId }
+                ?.label ?: "分类$selectedTypeId"
         } else {
-            "${selectedNavCategory.label} · 全部"
+            "$selectedNavLabel · 全部"
         }
 
     val filterSummary: String

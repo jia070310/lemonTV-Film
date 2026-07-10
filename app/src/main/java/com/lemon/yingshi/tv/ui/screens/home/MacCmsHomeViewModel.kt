@@ -6,7 +6,6 @@ import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
 import com.lemon.yingshi.tv.domain.model.MacCmsHomeSectionRef
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,8 +25,8 @@ data class MacCmsHomeSection(
     val sectionKey: String,
     val typeName: String,
     val typeId: Int,
-    /** 首页四大类栏目跳转筛选页时使用；二级子类栏目为 null */
-    val navCategory: MacCmsHomeNavCategory? = null,
+    /** 首页顶级分类栏目跳转筛选页时使用；二级子类栏目为 null */
+    val navTypeId: Int? = null,
     val items: List<MacCmsVodItem>,
     val total: Int,
     val error: String? = null
@@ -52,6 +51,7 @@ class MacCmsHomeViewModel @Inject constructor(
     init {
         loadHome()
         observeHomeConfigChanges()
+        observeServerUrlChanges()
     }
 
     fun loadHome() {
@@ -69,10 +69,11 @@ class MacCmsHomeViewModel @Inject constructor(
             }
 
             try {
+                val taxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = true)
                 val savedOrder = categorySortPreferences.sectionOrder.first()
                 val savedVisible = categorySortPreferences.visibleSectionKeys.first()
                 val visibilityConfigured = categorySortPreferences.visibilityConfigured.first()
-                val sectionRefs = MacCmsTaxonomy.buildHomeSectionRefs(
+                val sectionRefs = taxonomy.buildHomeSectionRefs(
                     savedOrder = savedOrder,
                     savedVisible = savedVisible,
                     visibilityConfigured = visibilityConfigured
@@ -89,7 +90,7 @@ class MacCmsHomeViewModel @Inject constructor(
                     return@launch
                 }
 
-                val sections = loadSections(sectionRefs)
+                val sections = loadSections(sectionRefs, taxonomy)
                 val visibleSections = sections.filter { it.items.isNotEmpty() }
                 val loadError = sections.firstOrNull { it.error != null }?.error
                 _uiState.update {
@@ -120,14 +121,23 @@ class MacCmsHomeViewModel @Inject constructor(
         }
     }
 
+    private fun observeServerUrlChanges() {
+        viewModelScope.launch {
+            macCmsRepository.serverUrl
+                .drop(1)
+                .collect { loadHome() }
+        }
+    }
+
     private suspend fun loadSections(
-        sectionRefs: List<MacCmsHomeSectionRef>
+        sectionRefs: List<MacCmsHomeSectionRef>,
+        taxonomy: MacCmsTaxonomy
     ): List<MacCmsHomeSection> = coroutineScope {
         sectionRefs.map { ref ->
             async {
                 val result = when (ref) {
                     is MacCmsHomeSectionRef.Main ->
-                        macCmsRepository.fetchLatestForNavCategory(ref.category)
+                        macCmsRepository.fetchLatestForNavCategory(ref.category, taxonomy)
                     is MacCmsHomeSectionRef.Secondary ->
                         macCmsRepository.fetchLatestForType(ref.typeId)
                 }
@@ -135,14 +145,14 @@ class MacCmsHomeViewModel @Inject constructor(
                     is MacCmsHomeSectionRef.Main -> 0
                     is MacCmsHomeSectionRef.Secondary -> ref.typeId
                 }
-                val navCategory = (ref as? MacCmsHomeSectionRef.Main)?.category
+                val navTypeId = ref.navTypeId
                 if (result.items.isEmpty()) {
                     return@async if (result.error != null) {
                         MacCmsHomeSection(
                             sectionKey = ref.sectionKey,
                             typeName = ref.displayName,
                             typeId = filterTypeId,
-                            navCategory = navCategory,
+                            navTypeId = navTypeId,
                             items = emptyList(),
                             total = 0,
                             error = result.error
@@ -155,7 +165,7 @@ class MacCmsHomeViewModel @Inject constructor(
                     sectionKey = ref.sectionKey,
                     typeName = ref.displayName,
                     typeId = filterTypeId,
-                    navCategory = navCategory,
+                    navTypeId = navTypeId,
                     items = result.items,
                     total = result.total
                 )

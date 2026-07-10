@@ -28,6 +28,9 @@ class MacCmsPreferences @Inject constructor(
         private val LAST_TEST_TIME_KEY = longPreferencesKey("last_test_time")
         private val LAST_TEST_STATUS_KEY = stringPreferencesKey("last_test_status")
         private val SITE_NAME_KEY = stringPreferencesKey("site_name")
+        private val MACCMS_VERSION_KEY = stringPreferencesKey("maccms_version")
+        private val CATEGORY_COUNT_KEY = stringPreferencesKey("category_count")
+        private val API_SOURCE_KEY = stringPreferencesKey("api_source")
     }
 
     val serverUrl: Flow<String> = dataStore.data.map { prefs ->
@@ -44,6 +47,18 @@ class MacCmsPreferences @Inject constructor(
 
     val siteName: Flow<String> = dataStore.data.map { prefs ->
         prefs[SITE_NAME_KEY] ?: ""
+    }
+
+    val maccmsVersion: Flow<String> = dataStore.data.map { prefs ->
+        prefs[MACCMS_VERSION_KEY] ?: ""
+    }
+
+    val categoryCount: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[CATEGORY_COUNT_KEY]?.toIntOrNull() ?: 0
+    }
+
+    val apiSourceLabel: Flow<String> = dataStore.data.map { prefs ->
+        prefs[API_SOURCE_KEY] ?: ""
     }
 
     val isConfigured: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -63,13 +78,25 @@ class MacCmsPreferences @Inject constructor(
 
     suspend fun saveConnectionTestResult(
         status: String,
-        siteName: String? = null
+        siteName: String? = null,
+        maccmsVersion: String? = null,
+        categoryCount: Int? = null,
+        apiSourceLabel: String? = null
     ) {
         dataStore.edit { prefs ->
             prefs[LAST_TEST_TIME_KEY] = System.currentTimeMillis()
             prefs[LAST_TEST_STATUS_KEY] = status
             if (!siteName.isNullOrBlank()) {
                 prefs[SITE_NAME_KEY] = siteName
+            }
+            if (!maccmsVersion.isNullOrBlank()) {
+                prefs[MACCMS_VERSION_KEY] = maccmsVersion
+            }
+            if (categoryCount != null) {
+                prefs[CATEGORY_COUNT_KEY] = categoryCount.toString()
+            }
+            if (!apiSourceLabel.isNullOrBlank()) {
+                prefs[API_SOURCE_KEY] = apiSourceLabel
             }
         }
     }
@@ -80,6 +107,9 @@ class MacCmsPreferences @Inject constructor(
             prefs.remove(LAST_TEST_TIME_KEY)
             prefs.remove(LAST_TEST_STATUS_KEY)
             prefs.remove(SITE_NAME_KEY)
+            prefs.remove(MACCMS_VERSION_KEY)
+            prefs.remove(CATEGORY_COUNT_KEY)
+            prefs.remove(API_SOURCE_KEY)
         }
     }
 

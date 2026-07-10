@@ -23,6 +23,31 @@ data class MacCmsTypeItem(
     val typePid: Int = 0
 )
 
+/** MacCMS /api.php/type/get_list/ 返回的分类树节点 */
+data class MacCmsTypeTreeItem(
+    @SerializedName("type_id")
+    val typeId: Int = 0,
+    @SerializedName("type_name")
+    val typeName: String = "",
+    @SerializedName("type_pid")
+    val typePid: Int = 0,
+    @SerializedName("type_sort")
+    val typeSort: Int = 0,
+    @SerializedName("child")
+    val children: List<MacCmsTypeTreeItem>? = null
+)
+
+data class MacCmsTypeListInfo(
+    val total: Int = 0,
+    val rows: List<MacCmsTypeTreeItem> = emptyList()
+)
+
+data class MacCmsTypeListResponse(
+    val code: Int = 0,
+    val msg: String? = null,
+    val info: MacCmsTypeListInfo? = null
+)
+
 data class MacCmsVodItem(
     @SerializedName("vod_id")
     val vodId: Int = 0,
@@ -74,7 +99,11 @@ data class MacCmsConnectionResult(
     val success: Boolean,
     val message: String,
     val categoryCount: Int = 0,
-    val siteName: String? = null
+    val siteName: String? = null,
+    /** 分类接口来源，如 REST 或视频采集接口 */
+    val apiSourceLabel: String? = null,
+    /** MacCMS 版本描述 */
+    val maccmsVersionLabel: String? = null
 )
 
 enum class MacCmsSortOption(val label: String, val by: String, val order: String) {

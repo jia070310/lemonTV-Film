@@ -2,6 +2,7 @@
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
 import com.lemon.yingshi.tv.data.preferences.MacCmsPreferences
 import com.lemon.yingshi.tv.data.remote.model.MacCmsConnectionResult
 import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
@@ -18,8 +19,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MacCmsConfigViewModel @Inject constructor(
-    private val macCmsRepository: MacCmsRepository,
-    private val macCmsPreferences: MacCmsPreferences
+    val macCmsRepository: MacCmsRepository,
+    private val macCmsPreferences: MacCmsPreferences,
+    private val categorySortPreferences: MacCmsCategorySortPreferences
 ) : ViewModel() {
 
     val serverUrl: StateFlow<String> = macCmsPreferences.serverUrl
@@ -34,6 +36,15 @@ class MacCmsConfigViewModel @Inject constructor(
     val siteName: StateFlow<String> = macCmsPreferences.siteName
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val maccmsVersion: StateFlow<String> = macCmsPreferences.maccmsVersion
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val savedCategoryCount: StateFlow<Int> = macCmsPreferences.categoryCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val savedApiSource: StateFlow<String> = macCmsPreferences.apiSourceLabel
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     private val _isTesting = MutableStateFlow(false)
     val isTesting: StateFlow<Boolean> = _isTesting.asStateFlow()
 
@@ -45,7 +56,12 @@ class MacCmsConfigViewModel @Inject constructor(
 
     fun saveServerUrl(url: String) {
         viewModelScope.launch {
+            val oldUrl = macCmsRepository.getServerUrl()
+            val normalizedNew = macCmsPreferences.normalizeBaseUrl(url)
             macCmsRepository.saveServerUrl(url)
+            if (oldUrl != normalizedNew) {
+                categorySortPreferences.clearHomeCategoryCache()
+            }
             _saveMessage.value = MacCmsErrorMessages.settingsSaved()
             delay(4000)
             _saveMessage.value = null

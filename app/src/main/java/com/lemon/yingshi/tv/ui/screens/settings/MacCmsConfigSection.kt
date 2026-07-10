@@ -86,6 +86,9 @@ fun MacCmsConfigSection(
     val lastTestTime by viewModel.lastTestTime.collectAsState()
     val lastTestStatus by viewModel.lastTestStatus.collectAsState()
     val siteName by viewModel.siteName.collectAsState()
+    val maccmsVersion by viewModel.maccmsVersion.collectAsState()
+    val savedCategoryCount by viewModel.savedCategoryCount.collectAsState()
+    val savedApiSource by viewModel.savedApiSource.collectAsState()
     val isTesting by viewModel.isTesting.collectAsState()
     val testResult by viewModel.testResult.collectAsState()
     val saveMessage by viewModel.saveMessage.collectAsState()
@@ -274,7 +277,7 @@ fun MacCmsConfigSection(
                     )
                 }
 
-                if (isConnected && (testResult?.categoryCount ?: 0) > 0) {
+                if (isConnected) {
                     Spacer(modifier = Modifier.height(16.dp.scale(s)))
                     Box(
                         modifier = Modifier
@@ -294,13 +297,26 @@ fun MacCmsConfigSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
+                            val displayCategoryCount = maxOf(
+                                testResult?.categoryCount ?: 0,
+                                savedCategoryCount
+                            )
+                            val displayVersion = testResult?.maccmsVersionLabel?.takeIf { it.isNotBlank() }
+                                ?: maccmsVersion.ifBlank { "—" }
+                            val displayApiSource = testResult?.apiSourceLabel?.takeIf { it.isNotBlank() }
+                                ?: savedApiSource.ifBlank { "—" }
                             Text(
-                                text = "分类数量: ${testResult?.categoryCount ?: 0}",
+                                text = "MacCMS 版本: $displayVersion",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                             Text(
-                                text = "API 版本: v10",
+                                text = "分类数量: $displayCategoryCount",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "分类来源: $displayApiSource",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )

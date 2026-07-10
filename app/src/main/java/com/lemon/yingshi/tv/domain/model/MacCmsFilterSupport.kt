@@ -23,8 +23,12 @@ object MacCmsFilterSupport {
         val sort: List<MacCmsSortOption>
     )
 
-    private val filterOptionsByCategory: Map<MacCmsHomeNavCategory, FilterOptionRow> = mapOf(
-        MacCmsHomeNavCategory.MOVIE to FilterOptionRow(
+    private enum class FilterProfile {
+        MOVIE, TV, VARIETY, ANIME, DEFAULT
+    }
+
+    private val filterOptionsByProfile: Map<FilterProfile, FilterOptionRow> = mapOf(
+        FilterProfile.MOVIE to FilterOptionRow(
             plot = listOf(
                 "喜剧", "爱情", "恐怖", "动作", "科幻", "剧情", "战争", "警匪", "犯罪",
                 "动画", "奇幻", "武侠", "冒险", "枪战", "悬疑", "惊悚", "经典", "青春",
@@ -38,7 +42,7 @@ object MacCmsFilterSupport {
             year = yearOptions(),
             sort = listOf(MacCmsSortOption.LATEST, MacCmsSortOption.HITS, MacCmsSortOption.SCORE)
         ),
-        MacCmsHomeNavCategory.TV to FilterOptionRow(
+        FilterProfile.TV to FilterOptionRow(
             plot = listOf(
                 "喜剧", "爱情", "恐怖", "动作", "科幻", "剧情", "战争", "警匪", "犯罪",
                 "动画", "奇幻", "武侠", "冒险", "枪战", "悬疑", "惊悚", "经典", "青春",
@@ -52,7 +56,7 @@ object MacCmsFilterSupport {
             year = yearOptions(),
             sort = listOf(MacCmsSortOption.LATEST, MacCmsSortOption.HITS, MacCmsSortOption.SCORE)
         ),
-        MacCmsHomeNavCategory.VARIETY to FilterOptionRow(
+        FilterProfile.VARIETY to FilterOptionRow(
             plot = listOf(
                 "选秀", "情感", "访谈", "播报", "旅游", "音乐", "美食", "纪实",
                 "曲艺", "生活", "游戏互动", "财经", "求职"
@@ -62,7 +66,7 @@ object MacCmsFilterSupport {
             year = yearOptions(),
             sort = listOf(MacCmsSortOption.LATEST, MacCmsSortOption.HITS, MacCmsSortOption.SCORE)
         ),
-        MacCmsHomeNavCategory.ANIME to FilterOptionRow(
+        FilterProfile.ANIME to FilterOptionRow(
             plot = listOf(
                 "情感", "科幻", "热血", "推理", "搞笑", "冒险", "萝莉", "校园", "动作",
                 "机战", "运动", "战争", "少年", "少女", "社会", "原创", "亲子", "益智", "励志", "其他"
@@ -71,11 +75,31 @@ object MacCmsFilterSupport {
             lang = listOf("国语", "英语", "粤语", "闽南语", "韩语", "日语", "其它"),
             year = yearOptions(),
             sort = listOf(MacCmsSortOption.LATEST, MacCmsSortOption.HITS, MacCmsSortOption.SCORE)
+        ),
+        FilterProfile.DEFAULT to FilterOptionRow(
+            plot = emptyList(),
+            area = listOf(
+                "大陆", "香港", "台湾", "美国", "法国", "英国", "日本", "韩国",
+                "德国", "泰国", "印度", "意大利", "西班牙", "加拿大", "其他"
+            ),
+            lang = listOf("国语", "英语", "粤语", "闽南语", "韩语", "日语", "其它"),
+            year = yearOptions(),
+            sort = listOf(MacCmsSortOption.LATEST, MacCmsSortOption.HITS, MacCmsSortOption.SCORE)
         )
     )
 
-    fun filterOptionsFor(category: MacCmsHomeNavCategory): FilterOptionRow =
-        filterOptionsByCategory[category] ?: filterOptionsByCategory[MacCmsHomeNavCategory.TV]!!
+    private fun profileForCategoryLabel(label: String): FilterProfile = when {
+        label.contains("电影") -> FilterProfile.MOVIE
+        label.contains("综艺") -> FilterProfile.VARIETY
+        label.contains("动漫") || label.contains("动画") -> FilterProfile.ANIME
+        label.contains("剧") || label.contains("电视") -> FilterProfile.TV
+        else -> FilterProfile.DEFAULT
+    }
+
+    fun filterOptionsFor(categoryLabel: String): FilterOptionRow {
+        val profile = profileForCategoryLabel(categoryLabel)
+        return filterOptionsByProfile[profile] ?: filterOptionsByProfile[FilterProfile.DEFAULT]!!
+    }
 
     private fun yearOptions(): List<String> {
         val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)

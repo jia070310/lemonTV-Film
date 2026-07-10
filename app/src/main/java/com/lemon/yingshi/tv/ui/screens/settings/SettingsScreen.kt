@@ -103,6 +103,7 @@ import com.lemon.yingshi.tv.ui.theme.SurfaceDark
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
+import com.lemon.yingshi.tv.ui.viewmodel.MacCmsConfigViewModel
 import com.lemon.yingshi.tv.ui.viewmodel.VersionUpdateViewModel
 import com.lemon.yingshi.tv.domain.model.VersionInfo
 import com.lemon.yingshi.tv.domain.service.DownloadService
@@ -218,9 +219,11 @@ fun SettingsScreen(
     }
 
     // 首页设置 - 分类排序
+    val macCmsConfigViewModel: MacCmsConfigViewModel = hiltViewModel()
     if (showSortDialog) {
         MacCmsCategorySortDialog(
             sortPreferences = sortPreferences,
+            macCmsRepository = macCmsConfigViewModel.macCmsRepository,
             onDismiss = { showSortDialog = false },
             onSuccess = {
                 showSortDialog = false

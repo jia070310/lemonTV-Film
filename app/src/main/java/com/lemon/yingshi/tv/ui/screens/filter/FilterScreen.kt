@@ -5,6 +5,7 @@ package com.lemon.yingshi.tv.ui.screens.filter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,7 +79,7 @@ import coil.request.ImageRequest
 import com.lemon.yingshi.tv.data.remote.model.MacCmsIds
 import com.lemon.yingshi.tv.data.remote.model.MacCmsSortOption
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
+import com.lemon.yingshi.tv.domain.model.MacCmsNavCategory
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import com.lemon.yingshi.tv.ui.components.InfoPillToast
 import com.lemon.yingshi.tv.ui.components.MediaCardFocusPlayIcon
@@ -114,6 +115,14 @@ fun FilterScreen(
     val uiState by viewModel.uiState.collectAsState()
     val sidebarFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
+    val firstChipFocusRequester = remember { FocusRequester() }
+    val firstCardFocusRequester = remember { FocusRequester() }
+    val loadMoreFocusRequester = remember { FocusRequester() }
+    val moveToContent: () -> Boolean = {
+        firstCardFocusRequester.tryRequestFocus()
+            || firstChipFocusRequester.tryRequestFocus()
+            || contentFocusRequester.tryRequestFocus()
+    }
 
     Box(
         modifier = Modifier
@@ -132,13 +141,13 @@ fun FilterScreen(
                 Row(modifier = Modifier.fillMaxSize()) {
                     FilterTreeSidebar(
                         treeCategories = uiState.treeCategories,
-                        expandedNavCategory = uiState.expandedNavCategory,
-                        selectedNavCategory = uiState.selectedNavCategory,
+                        expandedNavTypeId = uiState.expandedNavTypeId,
+                        selectedNavTypeId = uiState.selectedNavTypeId,
                         selectedTypeId = uiState.selectedTypeId,
                         onNavCategoryClick = viewModel::selectNavCategory,
                         onSecondaryClick = viewModel::selectSecondaryType,
                         sidebarFocusRequester = sidebarFocusRequester,
-                        contentFocusRequester = contentFocusRequester,
+                        onMoveToContent = moveToContent,
                         modifier = Modifier.width(SIDEBAR_WIDTH)
                     )
 
@@ -155,6 +164,9 @@ fun FilterScreen(
                         onRetry = viewModel::retry,
                         sidebarFocusRequester = sidebarFocusRequester,
                         contentFocusRequester = contentFocusRequester,
+                        firstChipFocusRequester = firstChipFocusRequester,
+                        firstCardFocusRequester = firstCardFocusRequester,
+                        loadMoreFocusRequester = loadMoreFocusRequester,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -169,13 +181,13 @@ fun FilterScreen(
 @Composable
 private fun FilterTreeSidebar(
     treeCategories: List<MacCmsTaxonomy.FilterTreeCategory>,
-    expandedNavCategory: MacCmsHomeNavCategory?,
-    selectedNavCategory: MacCmsHomeNavCategory,
+    expandedNavTypeId: Int?,
+    selectedNavTypeId: Int,
     selectedTypeId: Int,
-    onNavCategoryClick: (MacCmsHomeNavCategory) -> Unit,
+    onNavCategoryClick: (MacCmsNavCategory) -> Unit,
     onSecondaryClick: (Int) -> Unit,
     sidebarFocusRequester: FocusRequester,
-    contentFocusRequester: FocusRequester,
+    onMoveToContent: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -197,10 +209,10 @@ private fun FilterTreeSidebar(
             pivotOffsets = PivotOffsets(parentFraction = 0.3f)
         ) {
             treeCategories.forEachIndexed { index, tree ->
-                val isExpanded = expandedNavCategory == tree.category
-                val isMainSelected = selectedNavCategory == tree.category && selectedTypeId == 0
+                val isExpanded = expandedNavTypeId == tree.category.typeId
+                val isMainSelected = selectedNavTypeId == tree.category.typeId && selectedTypeId == 0
 
-                item(key = "main_${tree.category.name}") {
+                item(key = "main_${tree.category.typeId}") {
                     FilterSidebarItem(
                         text = tree.category.label,
                         isSelected = isMainSelected,
@@ -218,11 +230,12 @@ private fun FilterTreeSidebar(
                             )
                         },
                         onClick = { onNavCategoryClick(tree.category) },
-                        modifier = Modifier
-                            .then(
-                                if (index == 0) Modifier.focusRequester(sidebarFocusRequester) else Modifier
-                            )
-                            .focusProperties { right = contentFocusRequester }
+                        onMoveRight = onMoveToContent,
+                        modifier = if (index == 0) {
+                            Modifier.focusRequester(sidebarFocusRequester)
+                        } else {
+                            Modifier
+                        }
                     )
                 }
 
@@ -234,7 +247,7 @@ private fun FilterTreeSidebar(
                             isSelected = isChildSelected,
                             isChild = true,
                             onClick = { onSecondaryClick(child.typeId) },
-                            modifier = Modifier.focusProperties { right = contentFocusRequester }
+                            onMoveRight = onMoveToContent
                         )
                     }
                 }
@@ -250,6 +263,7 @@ private fun FilterSidebarItem(
     isSelected: Boolean,
     isChild: Boolean,
     onClick: () -> Unit,
+    onMoveRight: (() -> Boolean)? = null,
     modifier: Modifier = Modifier,
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
@@ -262,6 +276,19 @@ private fun FilterSidebarItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
+            .then(
+                if (onMoveRight != null) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                            onMoveRight()
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Row(
             modifier = Modifier
@@ -322,6 +349,9 @@ private fun FilterScrollContent(
     onRetry: () -> Unit,
     sidebarFocusRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
+    firstChipFocusRequester: FocusRequester,
+    firstCardFocusRequester: FocusRequester,
+    loadMoreFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberTvLazyListState()
@@ -336,7 +366,7 @@ private fun FilterScrollContent(
         scope.launch {
             listState.animateScrollToItem(0)
             delay(120)
-            contentFocusRequester.tryRequestFocus()
+            firstChipFocusRequester.tryRequestFocus() || contentFocusRequester.tryRequestFocus()
             showScrollTopToast = true
         }
     }
@@ -352,7 +382,18 @@ private fun FilterScrollContent(
         }
     }
 
-    Box(modifier = modifier) {
+    LaunchedEffect(uiState.isLoadingMore) {
+        if (uiState.isLoadingMore) {
+            loadMoreFocusRequester.tryRequestFocus()
+        } else if (uiState.hasMoreResults) {
+            delay(80)
+            loadMoreFocusRequester.tryRequestFocus()
+        }
+    }
+
+    Box(
+        modifier = modifier.focusRequester(contentFocusRequester)
+    ) {
         TvLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -377,8 +418,8 @@ private fun FilterScrollContent(
                 onYearSelected = onYearSelected,
                 onPlotSelected = onPlotSelected,
                 onSortSelected = onSortSelected,
-                sidebarFocusRequester = sidebarFocusRequester,
-                contentFocusRequester = contentFocusRequester
+                firstChipFocusRequester = firstChipFocusRequester,
+                sidebarFocusRequester = sidebarFocusRequester
             )
         }
 
@@ -445,6 +486,7 @@ private fun FilterScrollContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 32.dp, vertical = 8.dp)
+                            .focusProperties { left = FocusRequester.Cancel }
                             .then(cardLongPressUpModifier),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -454,7 +496,31 @@ private fun FilterScrollContent(
                                 FilterVodCard(
                                     vod = uiState.items[index],
                                     onClick = { onItemClick(uiState.items[index]) },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .then(
+                                            if (index == 0) {
+                                                Modifier.focusRequester(firstCardFocusRequester)
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
+                                        .then(
+                                            if (col == 0) {
+                                                Modifier.onPreviewKeyEvent { event ->
+                                                    if (
+                                                        event.type == KeyEventType.KeyDown &&
+                                                        event.key == Key.DirectionLeft
+                                                    ) {
+                                                        sidebarFocusRequester.tryRequestFocus()
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
                                 )
                             } else {
                                 Spacer(modifier = Modifier.weight(1f))
@@ -465,10 +531,28 @@ private fun FilterScrollContent(
 
                 if (uiState.hasMoreResults) {
                     item(key = "load_more") {
+                        val loadMoreModifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp)
+                            .focusRequester(loadMoreFocusRequester)
+                            .focusProperties {
+                                left = FocusRequester.Cancel
+                                down = FocusRequester.Cancel
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                    sidebarFocusRequester.tryRequestFocus()
+                                } else {
+                                    false
+                                }
+                            }
+
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
+                            modifier = if (uiState.isLoadingMore) {
+                                loadMoreModifier.focusable()
+                            } else {
+                                loadMoreModifier
+                            },
                             contentAlignment = Alignment.Center
                         ) {
                             if (uiState.isLoadingMore) {
@@ -693,17 +777,22 @@ private fun FilterChipPanel(
     onYearSelected: (String) -> Unit,
     onPlotSelected: (String) -> Unit,
     onSortSelected: (MacCmsSortOption) -> Unit,
-    sidebarFocusRequester: FocusRequester,
-    contentFocusRequester: FocusRequester
+    firstChipFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 32.dp)
-            .focusRequester(contentFocusRequester)
-            .focusProperties { left = sidebarFocusRequester }
     ) {
-        FilterChipRow("剧情", listOf("") + uiState.plotOptions, uiState.selectedPlot, onPlotSelected)
+        FilterChipRow(
+            label = "剧情",
+            options = listOf("") + uiState.plotOptions,
+            selected = uiState.selectedPlot,
+            onSelected = onPlotSelected,
+            firstChipFocusRequester = firstChipFocusRequester,
+            sidebarFocusRequester = sidebarFocusRequester
+        )
         FilterChipRow("地区", listOf("") + uiState.areaOptions, uiState.selectedArea, onAreaSelected)
         FilterChipRow("语言", listOf("") + uiState.langOptions, uiState.selectedLang, onLangSelected)
         FilterChipRow("年份", listOf("") + uiState.yearOptions, uiState.selectedYear, onYearSelected)
@@ -727,7 +816,9 @@ private fun FilterChipRow(
     options: List<String>,
     selected: String,
     onSelected: (String) -> Unit,
-    displayTransform: (String) -> String = { if (it.isBlank()) "全部" else it }
+    displayTransform: (String) -> String = { if (it.isBlank()) "全部" else it },
+    firstChipFocusRequester: FocusRequester? = null,
+    sidebarFocusRequester: FocusRequester? = null
 ) {
     Row(
         modifier = Modifier
@@ -749,6 +840,8 @@ private fun FilterChipRow(
             items(options) { option ->
                 val isSelected = option == selected
                 val displayText = displayTransform(option)
+                val isFirstChip = firstChipFocusRequester != null && option == options.first()
+                val chipRequester = firstChipFocusRequester
                 Card(
                     onClick = { onSelected(option) },
                     colors = CardDefaults.colors(
@@ -756,7 +849,28 @@ private fun FilterChipRow(
                         focusedContainerColor = PrimaryYellow
                     ),
                     scale = CardDefaults.scale(focusedScale = 1.05f),
-                    modifier = Modifier.height(36.dp)
+                    modifier = Modifier
+                        .height(36.dp)
+                        .then(
+                            if (isFirstChip && chipRequester != null) {
+                                Modifier
+                                    .focusRequester(chipRequester)
+                                    .focusProperties { left = FocusRequester.Cancel }
+                                    .onPreviewKeyEvent { event ->
+                                        if (
+                                            sidebarFocusRequester != null &&
+                                            event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionLeft
+                                        ) {
+                                            sidebarFocusRequester.tryRequestFocus()
+                                        } else {
+                                            false
+                                        }
+                                    }
+                            } else {
+                                Modifier
+                            }
+                        )
                 ) {
                     Box(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -910,7 +1024,7 @@ private fun buildCardMeta(vod: MacCmsVodItem): String {
     val parts = mutableListOf<String>()
     if (!vod.vodYear.isNullOrBlank()) parts.add(vod.vodYear)
     val genre = vod.vodClass?.split(Regex("[,，|]"))?.firstOrNull()?.trim()
-        ?: MacCmsTaxonomy.secondaryLabel(vod.typeId).takeIf { vod.typeId > 0 }
+        ?: vod.typeName?.takeIf { it.isNotBlank() }
     if (!genre.isNullOrBlank()) parts.add(genre)
     if (!vod.vodArea.isNullOrBlank()) parts.add(vod.vodArea)
     return parts.joinToString(" · ").ifBlank { "—" }

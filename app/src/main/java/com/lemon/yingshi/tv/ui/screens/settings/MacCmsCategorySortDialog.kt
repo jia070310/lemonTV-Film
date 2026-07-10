@@ -56,6 +56,7 @@ import androidx.tv.material3.Switch
 import androidx.tv.material3.SwitchDefaults
 import androidx.tv.material3.Text
 import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
+import com.lemon.yingshi.tv.data.repository.MacCmsRepository
 import com.lemon.yingshi.tv.domain.model.MacCmsHomeSectionRef
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import com.lemon.yingshi.tv.ui.DialogDimens
@@ -176,12 +177,15 @@ private fun rememberCategorySortKeyModifier(
 @Composable
 fun MacCmsCategorySortDialog(
     sortPreferences: MacCmsCategorySortPreferences,
+    macCmsRepository: MacCmsRepository,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
     val savedOrder by sortPreferences.sectionOrder.collectAsState(initial = emptyList())
     val savedVisibleKeys by sortPreferences.visibleSectionKeys.collectAsState(initial = emptySet())
     val visibilityConfigured by sortPreferences.visibilityConfigured.collectAsState(initial = false)
+    var taxonomy by remember { mutableStateOf<MacCmsTaxonomy?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     var editableOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     var editableVisibleKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var currentFocus by remember { mutableStateOf<FocusTarget?>(null) }
@@ -274,9 +278,21 @@ fun MacCmsCategorySortDialog(
         onLongUp = { jumpToFirstRow() }
     )
 
-    LaunchedEffect(savedOrder, savedVisibleKeys, visibilityConfigured) {
-        editableOrder = MacCmsTaxonomy.resolveSectionOrder(savedOrder)
-        editableVisibleKeys = MacCmsTaxonomy.resolveVisibleSectionKeys(
+    LaunchedEffect(Unit) {
+        runCatching {
+            macCmsRepository.fetchTaxonomy(forceRefresh = true)
+        }.onSuccess { loaded ->
+            taxonomy = loaded
+            loadError = null
+        }.onFailure { error ->
+            loadError = error.message ?: "加载分类失败"
+        }
+    }
+
+    LaunchedEffect(savedOrder, savedVisibleKeys, visibilityConfigured, taxonomy) {
+        val tax = taxonomy ?: return@LaunchedEffect
+        editableOrder = tax.resolveSectionOrder(savedOrder)
+        editableVisibleKeys = tax.resolveVisibleSectionKeys(
             savedVisible = savedVisibleKeys,
             visibilityConfigured = visibilityConfigured
         )
@@ -288,6 +304,30 @@ fun MacCmsCategorySortDialog(
             currentFocus = FocusTarget(0, RowControl.Toggle)
             rowFocusRequesters.firstOrNull()?.toggle?.tryRequestFocus()
         }
+    }
+
+    val tax = taxonomy
+    if (tax == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.7f))
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
+                        onDismiss()
+                        true
+                    } else {
+                        false
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = loadError ?: "正在加载服务器分类…",
+                color = TextSecondary
+            )
+        }
+        return
     }
 
     Box(
@@ -338,7 +378,7 @@ fun MacCmsCategorySortDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     editableOrder.forEachIndexed { index, sectionKey ->
-                        val sectionRef = MacCmsTaxonomy.parseSectionKey(sectionKey)
+                        val sectionRef = tax.parseSectionKey(sectionKey)
                         val isVisible = sectionKey in editableVisibleKeys
                         val isSecondary = sectionRef is MacCmsHomeSectionRef.Secondary
                         val title = sectionRef?.displayName ?: sectionKey

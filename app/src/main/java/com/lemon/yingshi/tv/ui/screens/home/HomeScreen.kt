@@ -90,7 +90,6 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.tv.material3.Icon
 import com.lemon.yingshi.tv.data.remote.model.MacCmsIds
-import com.lemon.yingshi.tv.domain.model.MacCmsHomeNavCategory
 import com.lemon.yingshi.tv.ui.components.InfoPillToast
 import com.lemon.yingshi.tv.R
 import androidx.tv.material3.IconButton
@@ -152,7 +151,7 @@ fun HomeScreen(
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToRecentWatching: () -> Unit = {},
-    onNavigateToFilter: (typeId: Int, navCategory: MacCmsHomeNavCategory?) -> Unit = { _, _ -> },
+    onNavigateToFilter: (typeId: Int, navTypeId: Int) -> Unit = { _, _ -> },
     onPlayFromHistory: (com.lemon.yingshi.tv.domain.service.WatchHistoryItem) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
     macCmsHomeViewModel: MacCmsHomeViewModel = hiltViewModel(),
@@ -375,7 +374,7 @@ fun HomeScreen(
                             showMore = section.items.isNotEmpty(),
                             moreLabel = "更多",
                             onMoreClick = {
-                                onNavigateToFilter(section.typeId, section.navCategory)
+                                onNavigateToFilter(section.typeId, section.navTypeId ?: -1)
                             },
                             currentRowFocusRequesters = macCmsRowFocusRequesters.getOrNull(sectionIndex),
                             headerFocusRequesters = headerFocusRequesters,
@@ -440,7 +439,7 @@ fun HomeScreen(
                 selectedTab = index
                 when (index) {
                     0 -> { /* Home - already here */ }
-                    1 -> onNavigateToFilter(-1, null)
+                    1 -> onNavigateToFilter(-1, -1)
                     2 -> onNavigateToSettings()
                 }
             },
@@ -576,11 +575,6 @@ private fun HomeHeader(
                 modifier = Modifier
                     .focusRequester(headerFocusRequesters[0])
                     .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(0) }
-                    .focusProperties {
-                        if (showVersionUpdateBadge && versionUpdateBadgeFocusRequester != null) {
-                            left = versionUpdateBadgeFocusRequester
-                        }
-                    }
                     .onPreviewKeyEvent { keyEvent ->
                         when {
                             keyEvent.key == Key.DirectionDown && keyEvent.type == KeyEventType.KeyDown -> {
@@ -829,12 +823,7 @@ private fun RecentWatchingRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up =
-                                    if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
-                                        topVersionBadgeFocusRequester
-                                    } else {
-                                        headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
-                                    }
+                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
                             }
                         }
                 )
@@ -854,12 +843,7 @@ private fun RecentWatchingRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up =
-                                    if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
-                                        topVersionBadgeFocusRequester
-                                    } else {
-                                        headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
-                                    }
+                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
                             }
                         }
                 )
