@@ -10,6 +10,7 @@
     
     <!-- Home -->
     <string name="recent_watching">最近观看</string>
+    <string name="my_favorites">我的收藏</string>
     <string name="tv_shows">热播电视剧</string>
     <string name="movies">热门电影</string>
     <string name="concerts">精彩演唱会</string>

@@ -15,6 +15,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lemon.yingshi.tv.ui.player.PlayerActivity
 import com.lemon.yingshi.tv.ui.screens.detail.DetailScreen
+import com.lemon.yingshi.tv.ui.screens.favorites.FavoritesScreen
 import com.lemon.yingshi.tv.ui.screens.filter.FilterScreen
 import com.lemon.yingshi.tv.ui.screens.home.HomeScreen
 import com.lemon.yingshi.tv.ui.screens.home.HomeViewModel
@@ -38,6 +39,7 @@ sealed class Screen(val route: String) {
             "player/$mediaId/${episodeId ?: "null"}"
     }
     data object RecentWatching : Screen("recent_watching")
+    data object Favorites : Screen("favorites")
     data object Recommended : Screen("recommended")
     data object Filter : Screen("filter?typeId={typeId}&navTypeId={navTypeId}") {
         fun createRoute(typeId: Int = -1, navTypeId: Int = -1): String =
@@ -71,6 +73,9 @@ fun LomenTVNavigation(
                     },
                     onNavigateToRecentWatching = {
                         navController.navigate(Screen.RecentWatching.route)
+                    },
+                    onNavigateToFavorites = {
+                        navController.navigate(Screen.Favorites.route)
                     },
                     onNavigateToRecommended = {
                         navController.navigate(Screen.Recommended.route)
@@ -170,6 +175,17 @@ fun LomenTVNavigation(
                                 recentContext.startActivity(intent)
                             }
                         }
+                    }
+                )
+            }
+
+            composable(Screen.Favorites.route) {
+                FavoritesScreen(
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onNavigateToDetail = { mediaId ->
+                        navController.navigate(Screen.Detail.createRoute(mediaId))
                     }
                 )
             }

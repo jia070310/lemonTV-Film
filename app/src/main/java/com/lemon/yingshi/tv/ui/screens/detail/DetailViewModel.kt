@@ -13,6 +13,7 @@ import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
 import com.lemon.yingshi.tv.domain.model.MediaType
 import com.lemon.yingshi.tv.domain.model.mapMacCmsTypeName
+import com.lemon.yingshi.tv.domain.service.FavoriteService
 import com.lemon.yingshi.tv.domain.service.WatchHistoryService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,11 +26,15 @@ import javax.inject.Inject
 class DetailViewModel @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val watchHistoryService: WatchHistoryService,
+    private val favoriteService: FavoriteService,
     private val macCmsRepository: MacCmsRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<DetailUiState>(DetailUiState.Loading)
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
+
+    private val _isFavorite = MutableStateFlow(false)
+    val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
 
     private val _selectedSeason = MutableStateFlow(1)
     val selectedSeason: StateFlow<Int> = _selectedSeason.asStateFlow()
@@ -48,6 +53,7 @@ class DetailViewModel @Inject constructor(
             currentMediaId = null
             macCmsPlaySources = emptyList()
             selectedPlaySourceIndex = 0
+            _isFavorite.value = favoriteService.isFavorite(mediaId)
 
             val vodId = MacCmsIds.decode(mediaId)
             if (vodId == null) {
@@ -350,6 +356,25 @@ class DetailViewModel @Inject constructor(
     private suspend fun resolveEpisodeWatchHistory(mediaId: String, episodeId: String): WatchHistoryEntity? {
         return watchHistoryDao.getWatchHistory(mediaId, episodeId)
             ?: watchHistoryDao.getLatestWatchHistoryByEpisodeId(episodeId)
+    }
+
+    fun toggleFavorite() {
+        val currentState = _uiState.value as? DetailUiState.Success ?: return
+        val media = currentState.media
+        viewModelScope.launch {
+            val isNowFavorite = favoriteService.toggleFavorite(
+                mediaId = media.id,
+                title = media.title,
+                posterUrl = media.posterUrl,
+                backdropUrl = media.backdropUrl,
+                overview = media.overview,
+                year = media.year,
+                genres = media.genres,
+                mediaType = media.type,
+                rating = media.rating
+            )
+            _isFavorite.value = isNowFavorite
+        }
     }
 
     private fun buildEpisodeLabel(episode: EpisodeItem): String {

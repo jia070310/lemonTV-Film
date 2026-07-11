@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -122,6 +123,20 @@ private fun FocusRequester.tryRequestFocus(): Boolean {
     }.getOrElse { false }
 }
 
+private fun navigateUpToVersionBadge(
+    keyEvent: androidx.compose.ui.input.key.KeyEvent,
+    showBadge: Boolean,
+    badgeFocusRequester: FocusRequester?
+): Boolean {
+    if (keyEvent.key == Key.DirectionUp && keyEvent.type == KeyEventType.KeyDown &&
+        showBadge && badgeFocusRequester != null
+    ) {
+        badgeFocusRequester.tryRequestFocus()
+        return true
+    }
+    return false
+}
+
 private fun requestFirstAvailableFocus(vararg requesters: FocusRequester?): Boolean {
     requesters.forEach { requester ->
         if (requester != null && requester.tryRequestFocus()) {
@@ -152,6 +167,7 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToRecentWatching: () -> Unit = {},
     onNavigateToRecommended: () -> Unit = {},
+    onNavigateToFavorites: () -> Unit = {},
     onNavigateToFilter: (typeId: Int, navTypeId: Int) -> Unit = { _, _ -> },
     onPlayFromHistory: (com.lemon.yingshi.tv.domain.service.WatchHistoryItem) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
@@ -222,7 +238,7 @@ fun HomeScreen(
             List(totalItems) { FocusRequester() }
         }
     }
-    val headerFocusRequesters = remember { List(3) { FocusRequester() } }
+    val headerFocusRequesters = remember { List(4) { FocusRequester() } }
 
     LaunchedEffect(Unit) {
         delay(100)
@@ -230,6 +246,7 @@ fun HomeScreen(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val downloadScope = rememberCoroutineScope()
 
     // 版本更新检查
     val hasUpdate by versionUpdateViewModel.hasUpdate.collectAsState()
@@ -238,6 +255,28 @@ fun HomeScreen(
     val versionUpdateBadgeFocusRequester = remember { FocusRequester() }
     var showTopVersionBadge by remember(versionInfo?.versionName, hasUpdate) {
         mutableStateOf(true)
+    }
+
+    val startVersionDownload: () -> Unit = startVersionDownload@{
+        val currentVersionInfo = versionInfo ?: return@startVersionDownload
+        showTopVersionBadge = false
+        showVersionUpdateDialog = false
+        versionUpdateViewModel.startDownloadProgress()
+        val downloadService = com.lemon.yingshi.tv.domain.service.DownloadService(context)
+        downloadScope.launch {
+            downloadService.downloadApk(
+                versionInfo = currentVersionInfo,
+                onProgress = { progress ->
+                    versionUpdateViewModel.updateDownloadProgress(progress)
+                },
+                onComplete = { apkFile ->
+                    versionUpdateViewModel.completeDownload()
+                    if (apkFile != null) {
+                        downloadService.installApk(apkFile)
+                    }
+                }
+            )
+        }
     }
 
     // 启动时检查版本更新
@@ -303,13 +342,14 @@ fun HomeScreen(
             item {
                 HomeHeader(
                     onSearchClick = onNavigateToSearch,
+                    onFavoritesClick = onNavigateToFavorites,
                     onRefreshClick = { macCmsHomeViewModel.loadHome(forceRefresh = true) },
                     notification = currentNotification,
                     firstRowFocusRequesters = rowFocusRequesters.firstOrNull(),
                     headerFocusRequesters = headerFocusRequesters,
                     fallbackContentFocusRequester = contentFocusRequester,
                     bottomNavigationFirstTabFocusRequester = bottomBarFirstTabFocusRequester,
-                    onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
+                    onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
                     showVersionUpdateBadge = showVersionBadgeOverlay,
                     versionUpdateBadgeFocusRequester = versionUpdateBadgeFocusRequester
                 )
@@ -332,7 +372,7 @@ fun HomeScreen(
                         currentRowFocusRequesters = rowFocusRequesters.getOrNull(rowIndexCursor),
                         headerFocusRequesters = headerFocusRequesters,
                         isFirstContentRow = rowIndexCursor == 0,
-                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
+                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
                         showTopVersionBadge = showVersionBadgeOverlay,
                         topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
                     )
@@ -361,7 +401,9 @@ fun HomeScreen(
                         firstRowIndex = rowIndexCursor,
                         headerFocusRequesters = headerFocusRequesters,
                         isFirstContentRow = rowIndexCursor == 0,
-                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) }
+                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
+                        showTopVersionBadge = showVersionBadgeOverlay,
+                        topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
                     )
                 }
                 item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -413,7 +455,7 @@ fun HomeScreen(
                             currentRowFocusRequesters = macCmsRowFocusRequesters.getOrNull(sectionIndex),
                             headerFocusRequesters = headerFocusRequesters,
                             isFirstContentRow = rowIndexCursor == 0,
-                            onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) },
+                            onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
                             showTopVersionBadge = showVersionBadgeOverlay,
                             topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
                         )
@@ -457,10 +499,7 @@ fun HomeScreen(
             ) {
                 VersionUpdateBadge(
                     versionName = ver.versionName,
-                    onClick = {
-                        showTopVersionBadge = false
-                        showVersionUpdateDialog = true
-                    },
+                    onClick = startVersionDownload,
                     onDismiss = { showTopVersionBadge = false },
                     focusRequester = versionUpdateBadgeFocusRequester,
                     headerFocusRequesters = headerFocusRequesters,
@@ -496,31 +535,11 @@ fun HomeScreen(
 
         // 版本更新对话框
         if (showVersionUpdateDialog && versionInfo != null) {
-            val scope = rememberCoroutineScope()
             val currentVersionInfo = versionInfo
             if (currentVersionInfo != null) {
                 com.lemon.yingshi.tv.ui.components.VersionUpdateDialog(
                     versionInfo = currentVersionInfo,
-                    onUpdate = {
-                        showVersionUpdateDialog = false
-                        // 开始下载
-                        versionUpdateViewModel.startDownloadProgress()
-                        val downloadService = com.lemon.yingshi.tv.domain.service.DownloadService(context)
-                        scope.launch {
-                            downloadService.downloadApk(
-                                versionInfo = currentVersionInfo,
-                                onProgress = { progress ->
-                                    versionUpdateViewModel.updateDownloadProgress(progress)
-                                },
-                                onComplete = { apkFile ->
-                                    versionUpdateViewModel.completeDownload()
-                                    if (apkFile != null) {
-                                        downloadService.installApk(apkFile)
-                                    }
-                                }
-                            )
-                        }
-                    },
+                    onUpdate = startVersionDownload,
                     onCancel = {
                         showVersionUpdateDialog = false
                     }
@@ -542,6 +561,7 @@ fun HomeScreen(
 @Composable
 private fun HomeHeader(
     onSearchClick: () -> Unit,
+    onFavoritesClick: () -> Unit,
     onRefreshClick: () -> Unit,
     notification: com.lemon.yingshi.tv.domain.model.Notification? = null,
     firstRowFocusRequesters: List<FocusRequester>? = null,
@@ -615,6 +635,11 @@ private fun HomeHeader(
                     .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(0) }
                     .onPreviewKeyEvent { keyEvent ->
                         when {
+                            navigateUpToVersionBadge(
+                                keyEvent,
+                                showVersionUpdateBadge,
+                                versionUpdateBadgeFocusRequester
+                            ) -> true
                             keyEvent.key == Key.DirectionDown && keyEvent.type == KeyEventType.KeyDown -> {
                                 if (hasContentRowBelow) {
                                     requestFirstAvailableFocus(
@@ -653,6 +678,11 @@ private fun HomeHeader(
                     .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(1) }
                     .onPreviewKeyEvent { keyEvent ->
                         when {
+                            navigateUpToVersionBadge(
+                                keyEvent,
+                                showVersionUpdateBadge,
+                                versionUpdateBadgeFocusRequester
+                            ) -> true
                             keyEvent.key == Key.Enter && keyEvent.type == KeyEventType.KeyUp -> {
                                 onSearchClick()
                                 true
@@ -685,6 +715,57 @@ private fun HomeHeader(
 
             Spacer(modifier = Modifier.width(16.dp))
 
+            // 收藏按钮
+            IconButton(
+                onClick = onFavoritesClick,
+                colors = IconButtonDefaults.colors(
+                    containerColor = Color.Transparent,
+                    contentColor = TextSecondary,
+                    focusedContainerColor = PrimaryYellow,
+                    focusedContentColor = BackgroundDark
+                ),
+                modifier = Modifier
+                    .focusRequester(headerFocusRequesters[2])
+                    .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(2) }
+                    .onPreviewKeyEvent { keyEvent ->
+                        when {
+                            navigateUpToVersionBadge(
+                                keyEvent,
+                                showVersionUpdateBadge,
+                                versionUpdateBadgeFocusRequester
+                            ) -> true
+                            keyEvent.key == Key.Enter && keyEvent.type == KeyEventType.KeyUp -> {
+                                onFavoritesClick()
+                                true
+                            }
+                            keyEvent.key == Key.DirectionCenter && keyEvent.type == KeyEventType.KeyUp -> {
+                                onFavoritesClick()
+                                true
+                            }
+                            keyEvent.key == Key.DirectionDown && keyEvent.type == KeyEventType.KeyDown -> {
+                                if (hasContentRowBelow) {
+                                    requestFirstAvailableFocus(
+                                        firstRowFocusRequesters?.getOrNull(0),
+                                        fallbackContentFocusRequester
+                                    )
+                                } else {
+                                    bottomNavigationFirstTabFocusRequester.tryRequestFocus()
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = "收藏",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
             // User Avatar
             IconButton(
                 onClick = { /* User profile action */ },
@@ -695,20 +776,27 @@ private fun HomeHeader(
                     focusedContentColor = BackgroundDark
                 ),
                 modifier = Modifier
-                    .focusRequester(headerFocusRequesters[2])
-                    .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(2) }
+                    .focusRequester(headerFocusRequesters[3])
+                    .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(3) }
                     .onPreviewKeyEvent { keyEvent ->
-                        if (keyEvent.key == Key.DirectionDown && keyEvent.type == KeyEventType.KeyDown) {
-                            if (hasContentRowBelow) {
-                                requestFirstAvailableFocus(
-                                    firstRowFocusRequesters?.getOrNull(0),
-                                    fallbackContentFocusRequester
-                                )
-                            } else {
-                                bottomNavigationFirstTabFocusRequester.tryRequestFocus()
+                        when {
+                            navigateUpToVersionBadge(
+                                keyEvent,
+                                showVersionUpdateBadge,
+                                versionUpdateBadgeFocusRequester
+                            ) -> true
+                            keyEvent.key == Key.DirectionDown && keyEvent.type == KeyEventType.KeyDown -> {
+                                if (hasContentRowBelow) {
+                                    requestFirstAvailableFocus(
+                                        firstRowFocusRequesters?.getOrNull(0),
+                                        fallbackContentFocusRequester
+                                    )
+                                } else {
+                                    bottomNavigationFirstTabFocusRequester.tryRequestFocus()
+                                }
+                                true
                             }
-                        } else {
-                            false
+                            else -> false
                         }
                     }
                     .size(40.dp)
@@ -861,7 +949,11 @@ private fun RecentWatchingRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                up = if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
+                                    topVersionBadgeFocusRequester
+                                } else {
+                                    headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                }
                             }
                         }
                 )
@@ -881,7 +973,11 @@ private fun RecentWatchingRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                up = if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
+                                    topVersionBadgeFocusRequester
+                                } else {
+                                    headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                }
                             }
                         }
                 )

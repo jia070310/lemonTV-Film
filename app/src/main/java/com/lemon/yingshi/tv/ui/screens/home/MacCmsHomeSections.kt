@@ -108,7 +108,11 @@ fun MacCmsVodRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                up = if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
+                                    topVersionBadgeFocusRequester
+                                } else {
+                                    headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                }
                             } else {
                                 upRowFocusRequesters?.getOrNull(index)?.let { up = it }
                             }
@@ -128,7 +132,11 @@ fun MacCmsVodRow(
                         .onFocusChanged { if (it.isFocused) onFocusedColumnChanged(index.coerceAtMost(2)) }
                         .focusProperties {
                             if (isFirstContentRow) {
-                                up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                up = if (showTopVersionBadge && topVersionBadgeFocusRequester != null) {
+                                    topVersionBadgeFocusRequester
+                                } else {
+                                    headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                                }
                             } else {
                                 upRowFocusRequesters?.getOrNull(index)?.let { up = it }
                             }

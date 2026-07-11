@@ -27,6 +27,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,7 +44,7 @@ import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
 import kotlinx.coroutines.delay
 
 /**
- * 版本更新提示徽章（TV 可聚焦；下键回到顶栏对应列，右键到刷新）
+ * 版本更新提示徽章（TV 可聚焦；10 秒后自动消失；上键从顶栏/首行内容进入，下键回到顶栏对应列）
  */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -52,8 +57,8 @@ fun VersionUpdateBadge(
     headerFocusRequesters: List<FocusRequester>? = null,
     focusedHeaderColumnIndex: Int = 0
 ) {
-    LaunchedEffect(Unit) {
-        delay(10000)
+    LaunchedEffect(versionName) {
+        delay(10_000)
         onDismiss()
     }
 
@@ -83,8 +88,19 @@ fun VersionUpdateBadge(
                     if (hdr.isNotEmpty()) {
                         val idx = focusedHeaderColumnIndex.coerceIn(0, hdr.lastIndex)
                         down = hdr[idx]
+                        left = hdr[hdr.lastIndex]
                         right = hdr[0]
                     }
+                }
+            }
+            .onPreviewKeyEvent { keyEvent ->
+                when {
+                    (keyEvent.key == Key.Enter || keyEvent.key == Key.DirectionCenter) &&
+                        keyEvent.type == KeyEventType.KeyUp -> {
+                        onClick()
+                        true
+                    }
+                    else -> false
                 }
             }
             .onFocusChanged { isFocused = it.isFocused }
@@ -103,7 +119,7 @@ fun VersionUpdateBadge(
             ) {
                 Icon(
                     imageVector = Icons.Default.Info,
-                    contentDescription = null,
+                    contentDescription = "新版本 v$versionName，点击更新",
                     tint = iconTintColor,
                     modifier = Modifier.size(16.dp)
                 )

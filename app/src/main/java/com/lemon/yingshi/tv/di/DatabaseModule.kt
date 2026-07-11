@@ -3,6 +3,7 @@
 import android.content.Context
 import androidx.room.Room
 import com.lemon.yingshi.tv.data.local.database.LomenDatabase
+import com.lemon.yingshi.tv.data.local.database.dao.FavoriteDao
 import com.lemon.yingshi.tv.data.local.database.dao.SkipConfigDao
 import com.lemon.yingshi.tv.data.local.database.dao.WatchHistoryDao
 import dagger.Module
@@ -36,5 +37,10 @@ object DatabaseModule {
     @Provides
     fun provideSkipConfigDao(database: LomenDatabase): SkipConfigDao {
         return database.skipConfigDao()
+    }
+
+    @Provides
+    fun provideFavoriteDao(database: LomenDatabase): FavoriteDao {
+        return database.favoriteDao()
     }
 }

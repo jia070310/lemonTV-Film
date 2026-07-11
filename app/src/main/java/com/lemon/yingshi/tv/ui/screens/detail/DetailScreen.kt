@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
@@ -84,6 +86,7 @@ fun DetailScreen(
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isFavorite by viewModel.isFavorite.collectAsState()
 
     LaunchedEffect(mediaId) {
         viewModel.loadMediaDetail(mediaId)
@@ -128,9 +131,11 @@ fun DetailScreen(
                     selectedPlaySourceIndex = state.selectedPlaySourceIndex,
                     isLoadingPlayInfo = state.isLoadingPlayInfo,
                     isMacCms = isMacCms,
+                    isFavorite = isFavorite,
                     onPlaySourceSelected = { viewModel.selectPlaySource(it) },
                     onNavigateBack = onNavigateBack,
                     onPlayClick = onPlayClick,
+                    onToggleFavorite = { viewModel.toggleFavorite() },
                     viewModel = viewModel
                 )
             }
@@ -147,9 +152,11 @@ private fun DetailContent(
     selectedPlaySourceIndex: Int,
     isLoadingPlayInfo: Boolean,
     isMacCms: Boolean,
+    isFavorite: Boolean,
     onPlaySourceSelected: (Int) -> Unit,
     onNavigateBack: () -> Unit,
     onPlayClick: (videoUrl: String, title: String, episodeTitle: String?, mediaId: String, episodeId: String?, startPosition: Long) -> Unit,
+    onToggleFavorite: () -> Unit,
     viewModel: DetailViewModel
 ) {
     var focusedEpisodePath by remember(episodes) {
@@ -189,9 +196,11 @@ private fun DetailContent(
                 media = media,
                 episodes = episodes,
                 isLoadingPlayInfo = isLoadingPlayInfo,
+                isFavorite = isFavorite,
                 playButtonFocusRequester = playButtonFocusRequester,
                 lineSectionFocusRequester = lineSectionFocusRequester,
                 onNavigateBack = onNavigateBack,
+                onToggleFavorite = onToggleFavorite,
                 onPlayClick = {
                     CoroutineScope(Dispatchers.Main).launch {
                         val playbackInfo = viewModel.getResumePlaybackInfo()
@@ -297,9 +306,11 @@ private fun HeroSection(
     media: MediaDetail,
     episodes: List<EpisodeItem>,
     isLoadingPlayInfo: Boolean,
+    isFavorite: Boolean,
     playButtonFocusRequester: FocusRequester,
     lineSectionFocusRequester: FocusRequester,
     onNavigateBack: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onPlayClick: () -> Unit
 ) {
     Box(
@@ -479,6 +490,38 @@ private fun HeroSection(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (isLoadingPlayInfo) "加载播放源..." else "立即播放",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = Color.Unspecified
+                            )
+                        )
+                    }
+
+                    Button(
+                        onClick = onToggleFavorite,
+                        colors = ButtonDefaults.colors(
+                            containerColor = SurfaceDark.copy(alpha = 0.8f),
+                            contentColor = if (isFavorite) PrimaryYellow else TextPrimary,
+                            focusedContainerColor = PrimaryYellow,
+                            focusedContentColor = Color.Black,
+                            pressedContainerColor = PrimaryYellow,
+                            pressedContentColor = Color.Black
+                        ),
+                        shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
+                        modifier = Modifier
+                            .focusProperties {
+                                down = lineSectionFocusRequester
+                            }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFavorite) "取消收藏" else "收藏",
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isFavorite) "已收藏" else "收藏",
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                 color = Color.Unspecified
