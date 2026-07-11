@@ -10,6 +10,7 @@ data class FilterCatalogContinuation(
     val pool: MutableList<MacCmsVodItem> = mutableListOf(),
     val seen: MutableSet<Int> = mutableSetOf(),
     val exhausted: MutableMap<Int, Boolean> = mutableMapOf(),
+    val typePageCount: MutableMap<Int, Int> = mutableMapOf(),
     var nextPg: Int = 1,
     var apiTotalSum: Int = 0,
     var totalsCaptured: Boolean = false
@@ -41,4 +42,16 @@ internal fun mergeListRowWithDetail(base: MacCmsVodItem, detail: MacCmsVodItem):
         vodPicThumb = detail.vodPicThumb ?: base.vodPicThumb,
         vodPicSlide = detail.vodPicSlide ?: base.vodPicSlide,
         vodLevel = detail.vodLevel ?: base.vodLevel
+    )
+
+/** 合并列表行与详情行，保留播放地址、简介等详情字段 */
+internal fun mergeFullVodDetail(base: MacCmsVodItem, incoming: MacCmsVodItem): MacCmsVodItem =
+    mergeListRowWithDetail(base, incoming).copy(
+        vodBlurb = incoming.vodBlurb ?: base.vodBlurb,
+        vodContent = incoming.vodContent ?: base.vodContent,
+        vodPlayFrom = incoming.vodPlayFrom ?: base.vodPlayFrom,
+        vodPlayUrl = incoming.vodPlayUrl ?: base.vodPlayUrl,
+        vodPlayNote = incoming.vodPlayNote ?: base.vodPlayNote,
+        vodDirector = incoming.vodDirector ?: base.vodDirector,
+        vodActor = incoming.vodActor ?: base.vodActor
     )

@@ -15,11 +15,9 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,7 +29,9 @@ import javax.inject.Singleton
 
 @Singleton
 class PlayerService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val playerDataSourceFactory: PlayerDataSourceFactory,
+    private val hlsPrefetchService: HlsPrefetchService
 ) {
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
@@ -65,6 +65,8 @@ class PlayerService @Inject constructor(
     private var currentMediaUrl: String? = null
     private var currentMediaTitle: String? = null
     private var currentMediaEpisodeTitle: String? = null
+    private var currentMediaHeaders: Map<String, String> = emptyMap()
+    private var currentSubtitles: List<SubtitleInfo> = emptyList()
     private var currentStartPosition: Long = 0
     private var autoSubtitleAppliedForCurrentMedia: Boolean = false
 
@@ -130,15 +132,8 @@ class PlayerService @Inject constructor(
                 .setInitialBitrateEstimate(2_000_000) // 初始估计 2Mbps
                 .setSlidingWindowMaxWeight(2000) // 2秒滑动窗口
                 .build()
-            
-            // 配置HttpDataSource以支持自定义请求头
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(30_000)
-                .setReadTimeoutMs(30_000)
-                .setAllowCrossProtocolRedirects(true)
-            
-            val mediaSourceFactory = DefaultMediaSourceFactory(context)
-                .setDataSourceFactory(httpDataSourceFactory)
+
+            val mediaSourceFactory = playerDataSourceFactory.createMediaSourceFactory()
 
             // 创建渲染器工厂 - 关键修改：强制使用软件解码器
             // 在模拟器上，硬件解码器 (OMX.qcom) 通常是假的或不完整，导致黑屏
@@ -176,6 +171,7 @@ class PlayerService @Inject constructor(
     }
 
     fun releasePlayer() {
+        hlsPrefetchService.stop()
         exoPlayer?.apply {
             removeListener(playerListener)
             release()
@@ -215,6 +211,8 @@ class PlayerService @Inject constructor(
         currentMediaUrl = url
         currentMediaTitle = title
         currentMediaEpisodeTitle = episodeTitle
+        currentMediaHeaders = headers
+        currentSubtitles = subtitles
         currentStartPosition = startPositionMs
         autoSubtitleAppliedForCurrentMedia = false
         _selectedSubtitleIndex.value = -1
@@ -240,21 +238,15 @@ class PlayerService @Inject constructor(
             }
         }
         
-        // 配置HTTP请求头（如果有）
-        val httpDataSourceFactory = if (headers.isNotEmpty()) {
-            android.util.Log.d("PlayerService", "Configuring HTTP headers: ${headers.keys}, values: ${headers.mapValues { if (it.key.lowercase().contains("cookie") || it.key.lowercase().contains("authorization")) "***" else it.value }}")
-            DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(30_000)
-                .setReadTimeoutMs(30_000)
-                .setAllowCrossProtocolRedirects(true)
-                .setDefaultRequestProperties(headers)
-        } else {
-            DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(30_000)
-                .setReadTimeoutMs(30_000)
-                .setAllowCrossProtocolRedirects(true)
+        if (headers.isNotEmpty()) {
+            android.util.Log.d(
+                "PlayerService",
+                "Configuring HTTP headers: ${headers.keys}, values: ${headers.mapValues {
+                    if (it.key.lowercase().contains("cookie") || it.key.lowercase().contains("authorization")) "***" else it.value
+                }}"
+            )
         }
-        
+
         // 构建MediaItem
         val mediaItemBuilder = MediaItem.Builder()
             .setUri(url)
@@ -282,32 +274,18 @@ class PlayerService @Inject constructor(
         
         val mediaItem = mediaItemBuilder.build()
 
+        hlsPrefetchService.start(url, headers)
+
         exoPlayer?.apply {
-            // 如果有 headers，需要使用 setMediaSource 来使用自定义的 DataSourceFactory
-            if (headers.isNotEmpty()) {
-                val mediaSourceFactory = DefaultMediaSourceFactory(context)
-                    .setDataSourceFactory(httpDataSourceFactory)
-                val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
-                
-                setMediaSource(mediaSource)
-                prepare()
-                // 如果指定了起始位置，先 seekTo 然后播放
-                if (startPositionMs > 0) {
-                    android.util.Log.d("PlayerService", "Seeking to start position: $startPositionMs ms")
-                    seekTo(startPositionMs)
-                }
-                playWhenReady = true
-            } else {
-                // 没有 headers，直接使用 setMediaItem
-                setMediaItem(mediaItem)
-                prepare()
-                // 如果指定了起始位置，先 seekTo 然后播放
-                if (startPositionMs > 0) {
-                    android.util.Log.d("PlayerService", "Seeking to start position: $startPositionMs ms")
-                    seekTo(startPositionMs)
-                }
-                playWhenReady = true
+            val mediaSourceFactory = playerDataSourceFactory.createMediaSourceFactory(headers)
+            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+            setMediaSource(mediaSource)
+            prepare()
+            if (startPositionMs > 0) {
+                android.util.Log.d("PlayerService", "Seeking to start position: $startPositionMs ms")
+                seekTo(startPositionMs)
             }
+            playWhenReady = true
         }
     }
 
@@ -511,8 +489,8 @@ class PlayerService @Inject constructor(
                     url = url,
                     title = currentMediaTitle,
                     episodeTitle = currentMediaEpisodeTitle,
-                    headers = emptyMap(),
-                    subtitles = emptyList(),
+                    headers = currentMediaHeaders,
+                    subtitles = currentSubtitles,
                     startPositionMs = currentStartPosition
                 )
             } catch (e: Exception) {
@@ -571,12 +549,27 @@ class PlayerService @Inject constructor(
 
     private fun updatePositionInfo() {
         exoPlayer?.let { player ->
+            val prefetch = hlsPrefetchService.state.value
             _playerState.value = _playerState.value.copy(
                 currentPosition = player.currentPosition,
                 duration = player.duration.coerceAtLeast(0),
-                bufferedPosition = player.bufferedPosition
+                bufferedPosition = player.bufferedPosition,
+                prefetchProgress = prefetch.progress,
+                prefetchActive = prefetch.active,
+                prefetchCompletedSegments = prefetch.completedSegments,
+                prefetchTotalSegments = prefetch.totalSegments
             )
         }
+    }
+
+    fun refreshPrefetchState() {
+        val prefetch = hlsPrefetchService.state.value
+        _playerState.value = _playerState.value.copy(
+            prefetchProgress = prefetch.progress,
+            prefetchActive = prefetch.active,
+            prefetchCompletedSegments = prefetch.completedSegments,
+            prefetchTotalSegments = prefetch.totalSegments
+        )
     }
 
     fun updatePosition() {
@@ -836,6 +829,10 @@ data class PlayerState(
     val currentPosition: Long = 0,
     val duration: Long = 0,
     val bufferedPosition: Long = 0,
+    val prefetchProgress: Float = 0f,
+    val prefetchActive: Boolean = false,
+    val prefetchCompletedSegments: Int = 0,
+    val prefetchTotalSegments: Int = 0,
     val error: String? = null
 ) {
     enum class Type {

@@ -816,7 +816,8 @@ class PlayerViewModel @Inject constructor(
         positionUpdateJob = viewModelScope.launch {
             while (isActive) {
                 playerService.updatePosition()
-                delay(1000)
+                playerService.refreshPrefetchState()
+                delay(300)
             }
         }
     }

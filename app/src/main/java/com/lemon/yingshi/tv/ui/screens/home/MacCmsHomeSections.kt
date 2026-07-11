@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +28,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.foundation.PivotOffsets
@@ -40,18 +36,14 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.domain.model.mapMacCmsTypeName
-import com.lemon.yingshi.tv.ui.components.MediaCardFocusPlayIcon
+import com.lemon.yingshi.tv.ui.components.VodPosterImage
 import com.lemon.yingshi.tv.ui.theme.BackgroundDark
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
 import com.lemon.yingshi.tv.ui.theme.SurfaceDark
-import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 
 const val HOME_MACCMS_MAX_ITEMS = 10
@@ -252,50 +244,34 @@ private fun MacCmsVodCardPoster(
     vod: MacCmsVodItem,
     isFocused: Boolean
 ) {
-    Box {
-        if (!vod.vodPic.isNullOrBlank()) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(vod.vodPic)
-                    .crossfade(false)
-                    .build(),
-                contentDescription = vod.vodName,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else if (!isFocused) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(SurfaceDark),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(48.dp)
-                )
+    VodPosterImage(
+        posterUrl = vod.vodPic,
+        thumbUrl = vod.vodPicThumb,
+        contentDescription = vod.vodName,
+        modifier = Modifier.fillMaxSize(),
+        showFocusPlayIcon = true,
+        isFocused = isFocused,
+        iconSize = 48.dp,
+        crossfade = true,
+        overlay = {
+            if (!vod.vodRemarks.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(PrimaryYellow.copy(alpha = 0.9f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = vod.vodRemarks,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = BackgroundDark,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
-        MediaCardFocusPlayIcon(isFocused = isFocused, iconSize = 48.dp)
-        if (!vod.vodRemarks.isNullOrBlank()) {
-            Box(
-                modifier = Modifier
-                    .padding(8.dp)
-                    .align(Alignment.TopStart)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(PrimaryYellow.copy(alpha = 0.9f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = vod.vodRemarks,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BackgroundDark,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+    )
 }

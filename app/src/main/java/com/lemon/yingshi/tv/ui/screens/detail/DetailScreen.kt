@@ -53,9 +53,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.IconButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
 import com.lemon.yingshi.tv.data.remote.model.MacCmsIds
 import com.lemon.yingshi.tv.domain.model.MediaType
+import com.lemon.yingshi.tv.ui.components.VodPosterImage
 import com.lemon.yingshi.tv.ui.theme.BackgroundDark
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
 import com.lemon.yingshi.tv.ui.theme.SurfaceDark
@@ -126,6 +126,7 @@ fun DetailScreen(
                     episodes = state.episodes,
                     playSources = state.playSources,
                     selectedPlaySourceIndex = state.selectedPlaySourceIndex,
+                    isLoadingPlayInfo = state.isLoadingPlayInfo,
                     isMacCms = isMacCms,
                     onPlaySourceSelected = { viewModel.selectPlaySource(it) },
                     onNavigateBack = onNavigateBack,
@@ -144,6 +145,7 @@ private fun DetailContent(
     episodes: List<EpisodeItem>,
     playSources: List<String>,
     selectedPlaySourceIndex: Int,
+    isLoadingPlayInfo: Boolean,
     isMacCms: Boolean,
     onPlaySourceSelected: (Int) -> Unit,
     onNavigateBack: () -> Unit,
@@ -186,6 +188,7 @@ private fun DetailContent(
             HeroSection(
                 media = media,
                 episodes = episodes,
+                isLoadingPlayInfo = isLoadingPlayInfo,
                 playButtonFocusRequester = playButtonFocusRequester,
                 lineSectionFocusRequester = lineSectionFocusRequester,
                 onNavigateBack = onNavigateBack,
@@ -205,6 +208,14 @@ private fun DetailContent(
                     }
                 },
             )
+        }
+
+        if (isMacCms && isLoadingPlayInfo) {
+            item {
+                PlayInfoLoadingSection(
+                    playButtonFocusRequester = playButtonFocusRequester
+                )
+            }
         }
 
         if (isMacCms && playSources.isNotEmpty()) {
@@ -285,6 +296,7 @@ private fun DetailContent(
 private fun HeroSection(
     media: MediaDetail,
     episodes: List<EpisodeItem>,
+    isLoadingPlayInfo: Boolean,
     playButtonFocusRequester: FocusRequester,
     lineSectionFocusRequester: FocusRequester,
     onNavigateBack: () -> Unit,
@@ -295,12 +307,11 @@ private fun HeroSection(
             .fillMaxWidth()
             .height(500.dp)
     ) {
-        // Backdrop Image
-        AsyncImage(
-            model = media.backdropUrl ?: media.posterUrl,
+        VodPosterImage(
+            posterUrl = media.backdropUrl ?: media.posterUrl,
             contentDescription = media.title,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            crossfade = true
         )
 
         // Gradient Overlay
@@ -441,13 +452,16 @@ private fun HeroSection(
                 ) {
                     Button(
                         onClick = onPlayClick,
+                        enabled = !isLoadingPlayInfo,
                         colors = ButtonDefaults.colors(
                             containerColor = SurfaceDark.copy(alpha = 0.8f),
                             contentColor = TextPrimary,
                             focusedContainerColor = PrimaryYellow,
                             focusedContentColor = Color.Black,
                             pressedContainerColor = PrimaryYellow,
-                            pressedContentColor = Color.Black
+                            pressedContentColor = Color.Black,
+                            disabledContainerColor = SurfaceDark.copy(alpha = 0.5f),
+                            disabledContentColor = TextMuted
                         ),
                         shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
                         modifier = Modifier
@@ -464,7 +478,7 @@ private fun HeroSection(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "立即播放",
+                            text = if (isLoadingPlayInfo) "加载播放源..." else "立即播放",
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                 color = Color.Unspecified
@@ -473,6 +487,43 @@ private fun HeroSection(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PlayInfoLoadingSection(
+    playButtonFocusRequester: FocusRequester
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 48.dp, vertical = 16.dp)
+            .focusProperties {
+                up = playButtonFocusRequester
+            }
+    ) {
+        Text(
+            text = "播放源",
+            style = MaterialTheme.typography.headlineSmall,
+            color = TextPrimary,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = PrimaryYellow,
+                strokeWidth = 2.dp
+            )
+            Text(
+                text = "正在加载播放源与选集…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
         }
     }
 }
@@ -959,7 +1010,8 @@ sealed class DetailUiState {
         val episodes: List<EpisodeItem>,
         val cast: List<CastItem> = emptyList(),
         val playSources: List<String> = emptyList(),
-        val selectedPlaySourceIndex: Int = 0
+        val selectedPlaySourceIndex: Int = 0,
+        val isLoadingPlayInfo: Boolean = false
     ) : DetailUiState()
     data class Error(val message: String) : DetailUiState()
 }

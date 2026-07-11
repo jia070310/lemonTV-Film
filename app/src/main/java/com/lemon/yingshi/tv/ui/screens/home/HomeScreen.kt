@@ -352,7 +352,10 @@ fun HomeScreen(
                 item {
                     RecommendedVodSection(
                         items = recommendedItems,
-                        onItemClick = { vod -> onNavigateToDetail(MacCmsIds.encode(vod.vodId)) },
+                        onItemClick = { vod ->
+                            macCmsHomeViewModel.cacheVodForDetail(vod)
+                            onNavigateToDetail(MacCmsIds.encode(vod.vodId))
+                        },
                         onMoreClick = onNavigateToRecommended,
                         rowFocusRequesters = rowFocusRequesters,
                         firstRowIndex = rowIndexCursor,
@@ -398,7 +401,10 @@ fun HomeScreen(
                     item {
                         MacCmsVodRow(
                             items = section.items,
-                            onItemClick = { vod -> onNavigateToDetail(MacCmsIds.encode(vod.vodId)) },
+                            onItemClick = { vod ->
+                                macCmsHomeViewModel.cacheVodForDetail(vod)
+                                onNavigateToDetail(MacCmsIds.encode(vod.vodId))
+                            },
                             showMore = section.items.isNotEmpty(),
                             moreLabel = "更多",
                             onMoreClick = {

@@ -333,4 +333,8 @@ class MacCmsHomeViewModel @Inject constructor(
             )
         }
     }
+
+    fun cacheVodForDetail(vod: MacCmsVodItem) {
+        macCmsRepository.putCachedVodSnapshot(vod)
+    }
 }

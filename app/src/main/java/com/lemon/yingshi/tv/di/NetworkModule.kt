@@ -5,6 +5,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -27,6 +29,26 @@ object NetworkModule {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** 播放专用 OkHttp：无日志拦截，连接池 + 多路并发，供 ExoPlayer 缓冲复用 */
+    @Provides
+    @Singleton
+    @Named("playback")
+    fun providePlaybackOkHttpClient(): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 8
+            maxRequestsPerHost = 4
+        }
+        return OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+            .dispatcher(dispatcher)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
             .build()
     }
 

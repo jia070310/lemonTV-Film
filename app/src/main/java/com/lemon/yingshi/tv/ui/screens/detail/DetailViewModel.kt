@@ -45,7 +45,6 @@ class DetailViewModel @Inject constructor(
 
     fun loadMediaDetail(mediaId: String) {
         viewModelScope.launch {
-            _uiState.value = DetailUiState.Loading
             currentMediaId = null
             macCmsPlaySources = emptyList()
             selectedPlaySourceIndex = 0
@@ -55,6 +54,14 @@ class DetailViewModel @Inject constructor(
                 _uiState.value = DetailUiState.Error("无效的影片 ID")
                 return@launch
             }
+
+            val cached = macCmsRepository.getCachedVodDetail(vodId)
+            if (cached != null) {
+                showCachedPreview(cached, mediaId, isLoadingPlayInfo = !hasPlayInfo(cached))
+            } else {
+                _uiState.value = DetailUiState.Loading
+            }
+
             loadMacCmsDetail(vodId, mediaId)
         }
     }
@@ -102,7 +109,9 @@ class DetailViewModel @Inject constructor(
 
             val vod = macCmsRepository.fetchVodDetail(vodId)
             if (vod == null) {
-                _uiState.value = DetailUiState.Error("未找到影片信息")
+                if (_uiState.value !is DetailUiState.Success) {
+                    _uiState.value = DetailUiState.Error("未找到影片信息")
+                }
                 return
             }
 
@@ -117,7 +126,13 @@ class DetailViewModel @Inject constructor(
                 playerShowNames = playerNames
             )
             if (macCmsPlaySources.isEmpty()) {
-                _uiState.value = DetailUiState.Error("暂无可用播放源")
+                if (_uiState.value is DetailUiState.Success) {
+                    _uiState.value = (_uiState.value as DetailUiState.Success).copy(
+                        isLoadingPlayInfo = false
+                    )
+                } else {
+                    _uiState.value = DetailUiState.Error("暂无可用播放源")
+                }
                 return
             }
 
@@ -149,35 +164,78 @@ class DetailViewModel @Inject constructor(
             }
 
             _uiState.value = DetailUiState.Success(
-                media = MediaDetail(
-                    id = mediaId,
-                    title = vod.vodName,
-                    originalTitle = null,
-                    overview = vod.vodContent?.takeIf { it.isNotBlank() } ?: vod.vodBlurb,
-                    posterUrl = vod.vodPic,
-                    backdropUrl = vod.vodPic,
-                    rating = vod.vodScore?.toFloatOrNull(),
-                    year = vod.vodYear,
-                    genres = listOfNotNull(vod.typeName, vod.vodArea, vod.vodLang).filter { it.isNotBlank() },
-                    type = displayType,
-                    seasonCount = 1,
-                    totalEpisodes = episodes.size.takeIf { it > 0 },
-                    path = playPath,
-                    director = vod.vodDirector?.trim()?.takeIf { it.isNotBlank() },
-                    actors = vod.vodActor?.trim()?.takeIf { it.isNotBlank() },
-                    releaseDate = vod.vodYear?.trim()?.takeIf { it.isNotBlank() }
+                media = buildMediaDetailFromVod(
+                    vod = vod,
+                    mediaId = mediaId,
+                    displayType = displayType,
+                    playPath = playPath,
+                    episodeCount = episodes.size.takeIf { it > 0 }
                 ),
                 episodes = displayEpisodes,
                 cast = emptyList(),
                 playSources = macCmsPlaySources.map { it.name },
-                selectedPlaySourceIndex = selectedPlaySourceIndex
+                selectedPlaySourceIndex = selectedPlaySourceIndex,
+                isLoadingPlayInfo = false
             )
         } catch (e: Exception) {
-            _uiState.value = DetailUiState.Error(
-                MacCmsErrorMessages.fromThrowable(e, "加载失败")
-            )
+            if (_uiState.value is DetailUiState.Success) {
+                _uiState.value = (_uiState.value as DetailUiState.Success).copy(
+                    isLoadingPlayInfo = false
+                )
+            } else {
+                _uiState.value = DetailUiState.Error(
+                    MacCmsErrorMessages.fromThrowable(e, "加载失败")
+                )
+            }
         }
     }
+
+    private fun showCachedPreview(vod: MacCmsVodItem, mediaId: String, isLoadingPlayInfo: Boolean) {
+        currentPosterUrl = vod.vodPic
+        _uiState.value = DetailUiState.Success(
+            media = buildMediaDetailFromVod(
+                vod = vod,
+                mediaId = mediaId,
+                displayType = mapMacCmsTypeName(vod.typeName),
+                playPath = null,
+                episodeCount = null
+            ),
+            episodes = emptyList(),
+            cast = emptyList(),
+            playSources = emptyList(),
+            selectedPlaySourceIndex = 0,
+            isLoadingPlayInfo = isLoadingPlayInfo
+        )
+    }
+
+    private fun buildMediaDetailFromVod(
+        vod: MacCmsVodItem,
+        mediaId: String,
+        displayType: MediaType,
+        playPath: String?,
+        episodeCount: Int?
+    ): MediaDetail =
+        MediaDetail(
+            id = mediaId,
+            title = vod.vodName,
+            originalTitle = null,
+            overview = vod.vodContent?.takeIf { it.isNotBlank() } ?: vod.vodBlurb,
+            posterUrl = vod.vodPic,
+            backdropUrl = vod.vodPic,
+            rating = vod.vodScore?.toFloatOrNull(),
+            year = vod.vodYear,
+            genres = listOfNotNull(vod.typeName, vod.vodArea, vod.vodLang).filter { it.isNotBlank() },
+            type = displayType,
+            seasonCount = 1,
+            totalEpisodes = episodeCount,
+            path = playPath,
+            director = vod.vodDirector?.trim()?.takeIf { it.isNotBlank() },
+            actors = vod.vodActor?.trim()?.takeIf { it.isNotBlank() },
+            releaseDate = vod.vodYear?.trim()?.takeIf { it.isNotBlank() }
+        )
+
+    private fun hasPlayInfo(vod: MacCmsVodItem): Boolean =
+        !vod.vodPlayFrom.isNullOrBlank() && !vod.vodPlayUrl.isNullOrBlank()
 
     private fun buildMacCmsEpisodes(
         mediaId: String,

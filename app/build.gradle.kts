@@ -15,8 +15,8 @@ android {
         applicationId = "com.lemon.yingshi.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10002
-        versionName = "1.0.2"
+        versionCode = 10003
+        versionName = "1.0.3"
 
         // TV-specific configurations
         vectorDrawables.useSupportLibrary = true
@@ -122,6 +122,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
     implementation("androidx.media3:media3-session:1.2.1")
+    implementation("androidx.media3:media3-datasource:1.2.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.2.1")
+    implementation("androidx.media3:media3-database:1.2.1")
     
     // Jellyfin FFmpeg decoder for MP2/AC3/EAC3/DTS audio support
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.2.1+1")

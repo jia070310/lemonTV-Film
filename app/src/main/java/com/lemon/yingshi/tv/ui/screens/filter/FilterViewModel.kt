@@ -455,6 +455,10 @@ class FilterViewModel @Inject constructor(
     }
 
     fun retry() = loadInitialData()
+
+    fun cacheVodForDetail(vod: MacCmsVodItem) {
+        macCmsRepository.putCachedVodSnapshot(vod)
+    }
 }
 
 data class FilterUiState(

@@ -53,10 +53,39 @@ class MacCmsRepository @Inject constructor(
     @Volatile
     private var cachedTaxonomyUrl: String? = null
 
+    @Volatile
+    private var cachedVodDetails: MutableMap<Int, MacCmsVodItem> = linkedMapOf()
+
     fun invalidateTaxonomyCache() {
         cachedTaxonomy = null
         cachedTaxonomyUrl = null
     }
+
+    fun invalidateVodDetailCache() {
+        cachedVodDetails = linkedMapOf()
+    }
+
+    fun getCachedVodDetail(vodId: Int): MacCmsVodItem? = cachedVodDetails[vodId]
+
+    /** 点击卡片进入详情前写入，便于详情页秒开基本信息 */
+    fun putCachedVodSnapshot(vod: MacCmsVodItem) {
+        if (vod.vodId <= 0) return
+        cacheVodDetail(vod)
+    }
+
+    private fun cacheVodDetail(item: MacCmsVodItem) {
+        if (item.vodId <= 0) return
+        val existing = cachedVodDetails[item.vodId]
+        val merged = if (existing != null) mergeFullVodDetail(existing, item) else item
+        if (cachedVodDetails.size >= VOD_DETAIL_CACHE_MAX && !cachedVodDetails.containsKey(item.vodId)) {
+            val oldestKey = cachedVodDetails.keys.firstOrNull() ?: return
+            cachedVodDetails.remove(oldestKey)
+        }
+        cachedVodDetails[item.vodId] = merged
+    }
+
+    private fun hasPlayInfo(vod: MacCmsVodItem): Boolean =
+        !vod.vodPlayFrom.isNullOrBlank() && !vod.vodPlayUrl.isNullOrBlank()
 
     /**
      * 拉取分类树：优先 REST `/type/get_list/`，不可用时回退到 provide/vod 的 class 字段。
@@ -122,6 +151,7 @@ class MacCmsRepository @Inject constructor(
         if (oldUrl != normalizedNew) {
             invalidateTaxonomyCache()
             invalidateRecommendedCache()
+            invalidateVodDetailCache()
             cachedPlayerShowNames = emptyMap()
             cachedPlayerConfigBaseUrl = null
         }
@@ -748,6 +778,7 @@ class MacCmsRepository @Inject constructor(
         private const val RECOMMENDED_DETAIL_CHUNK_SIZE = 20
         private const val REST_RECOMMENDED_LEVEL_PAGE_SIZE = 50
         private const val REST_RECOMMENDED_LEVEL_SCAN_MAX = 1000
+        private const val VOD_DETAIL_CACHE_MAX = 300
     }
 
     suspend fun fetchLatestForType(
@@ -935,7 +966,18 @@ class MacCmsRepository @Inject constructor(
                 }
                 val batch = response.list
                 mergeBatch(batch)
-                if (batch.size < pagesize) exhausted[typeId] = true
+                if (typeId !in state.typePageCount) {
+                    state.typePageCount[typeId] = MacCmsFilterSupport.resolveFilterTypePageCount(
+                        pagecount = response.pagecount,
+                        total = response.total,
+                        batchSize = batch.size,
+                        requestedPageSize = pagesize
+                    )
+                }
+                val typePages = state.typePageCount[typeId] ?: 1
+                if (MacCmsFilterSupport.isFilterTypePageExhausted(pg, batch.size, typePages)) {
+                    exhausted[typeId] = true
+                }
             }
             state.totalsCaptured = true
 
@@ -1028,15 +1070,22 @@ class MacCmsRepository @Inject constructor(
         }.getOrDefault(emptyMap())
     }
 
-    suspend fun fetchVodDetail(vodId: Int): MacCmsVodItem? {
+    suspend fun fetchVodDetail(vodId: Int, forceRefresh: Boolean = false): MacCmsVodItem? {
         val baseUrl = getServerUrl()
         if (baseUrl.isBlank()) return null
+
+        if (!forceRefresh) {
+            getCachedVodDetail(vodId)?.takeIf { hasPlayInfo(it) }?.let { cached ->
+                return resolveItemAssets(baseUrl, cached)
+            }
+        }
 
         return try {
             val url = "$baseUrl/api.php/provide/vod/?ac=detail&ids=$vodId"
             val response = macCmsApi.fetchVodList(url)
             if (!response.isSuccessful) return null
             val row = response.body()?.list?.firstOrNull() ?: return null
+            cacheVodDetail(row)
             resolveItemAssets(baseUrl, row)
         } catch (e: Exception) {
             throw MacCmsErrorMessages.wrapIOException(e)
@@ -1128,6 +1177,7 @@ class MacCmsRepository @Inject constructor(
             if (!response.isSuccessful) continue
             response.body()?.list.orEmpty().forEach { row ->
                 map[row.vodId] = row
+                cacheVodDetail(row)
             }
         }
         return map

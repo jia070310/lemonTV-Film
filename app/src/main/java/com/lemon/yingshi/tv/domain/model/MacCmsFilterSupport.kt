@@ -123,6 +123,26 @@ object MacCmsFilterSupport {
     fun filterListTotalUsesClientCount(plot: String, area: String, lang: String): Boolean =
         plot.isNotBlank() || area.isNotBlank() || lang.isNotBlank()
 
+    /**
+     * 估算某分类在 MacCMS `ac=list` 下的总页数。
+     * 第三方源常忽略 `pagesize=100` 只返回约 20 条，不能再用「本批 < 请求条数」判定结束。
+     */
+    fun resolveFilterTypePageCount(
+        pagecount: Int,
+        total: Int,
+        batchSize: Int,
+        requestedPageSize: Int = FILTER_FETCH_PAGE_SIZE
+    ): Int {
+        if (pagecount > 1) return pagecount
+        if (total > 0 && batchSize > 0) {
+            return ((total + batchSize - 1) / batchSize).coerceAtLeast(1)
+        }
+        return if (batchSize < requestedPageSize) 1 else FILTER_MAX_PAGES_PER_TYPE
+    }
+
+    fun isFilterTypePageExhausted(currentPage: Int, batchSize: Int, typePageCount: Int): Boolean =
+        batchSize == 0 || currentPage >= typePageCount
+
     fun needsFilterDetailEnrichment(plot: String, area: String, lang: String, year: String): Boolean =
         plot.isNotBlank() || area.isNotBlank() || lang.isNotBlank() || year.isNotBlank()
 

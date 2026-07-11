@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -51,8 +50,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,15 +71,15 @@ import androidx.tv.material3.IconButton
 import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.lemon.yingshi.tv.data.remote.model.MacCmsIds
 import com.lemon.yingshi.tv.data.remote.model.MacCmsSortOption
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
+import com.lemon.yingshi.tv.domain.model.MacCmsFilterSupport
 import com.lemon.yingshi.tv.domain.model.MacCmsNavCategory
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import com.lemon.yingshi.tv.ui.components.InfoPillToast
-import com.lemon.yingshi.tv.ui.components.MediaCardFocusPlayIcon
+import com.lemon.yingshi.tv.ui.components.VodPosterImage
+import com.lemon.yingshi.tv.ui.components.VodPosterSkeleton
 import com.lemon.yingshi.tv.ui.theme.BackgroundDark
 import com.lemon.yingshi.tv.ui.theme.GlassBackground
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
@@ -166,7 +163,10 @@ fun FilterScreen(
                         onYearSelected = viewModel::selectYear,
                         onPlotSelected = viewModel::selectPlot,
                         onSortSelected = viewModel::selectSort,
-                        onItemClick = { vod -> onNavigateToDetail(MacCmsIds.encode(vod.vodId)) },
+                        onItemClick = { vod ->
+                            viewModel.cacheVodForDetail(vod)
+                            onNavigateToDetail(MacCmsIds.encode(vod.vodId))
+                        },
                         onLoadMore = viewModel::loadMore,
                         onRetry = viewModel::retry,
                         sidebarFocusRequester = sidebarFocusRequester,
@@ -435,11 +435,25 @@ private fun FilterScrollContent(
         }
 
         when {
-            uiState.isLoading -> {
-                item(key = "refreshing") {
-                    FilterRefreshingState(
-                        message = "正在根据筛选条件筛选结果，请稍等"
-                    )
+            uiState.isLoading && uiState.items.isEmpty() -> {
+                val skeletonCount = MacCmsFilterSupport.FILTER_UI_PAGE_SIZE
+                val skeletonRows = (skeletonCount + FILTER_COLUMNS - 1) / FILTER_COLUMNS
+                items(skeletonRows, key = { "skeleton_row_$it" }) { rowIndex ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        for (col in 0 until FILTER_COLUMNS) {
+                            val index = rowIndex * FILTER_COLUMNS + col
+                            if (index < skeletonCount) {
+                                FilterSkeletonCard(modifier = Modifier.weight(1f))
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
             }
             uiState.error != null && uiState.items.isEmpty() -> {
@@ -681,6 +695,37 @@ private fun FilterScrollToTopHint(modifier: Modifier = Modifier) {
                 color = TextPrimary
             )
         }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun FilterSkeletonCard(modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            VodPosterSkeleton(modifier = Modifier.fillMaxSize())
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceVariant)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.48f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceVariant.copy(alpha = 0.7f))
+        )
     }
 }
 
@@ -938,89 +983,71 @@ private fun FilterVodCard(
                 )
             )
         ) {
-            Box {
-                if (!vod.vodPic.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(vod.vodPic)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = vod.vodName,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else if (!isFocused) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(SurfaceDark),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(40.dp)
-                        )
+            VodPosterImage(
+                posterUrl = vod.vodPic,
+                thumbUrl = vod.vodPicThumb,
+                contentDescription = vod.vodName,
+                modifier = Modifier.fillMaxSize(),
+                showFocusPlayIcon = true,
+                isFocused = isFocused,
+                iconSize = 44.dp,
+                crossfade = true,
+                overlay = {
+                    if (!vod.vodRemarks.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .align(Alignment.TopStart)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(PrimaryYellow.copy(alpha = 0.9f))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = vod.vodRemarks,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = BackgroundDark,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    val score = vod.vodScore?.toFloatOrNull()
+                    if (score != null && score > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .align(Alignment.TopEnd)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.Black.copy(alpha = 0.6f))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "%.1f".format(score),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF10b981)
+                            )
+                        }
+                    }
+
+                    if (!vod.vodYear.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .align(Alignment.BottomStart)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color.Black.copy(alpha = 0.6f))
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = vod.vodYear,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextPrimary
+                            )
+                        }
                     }
                 }
-
-                MediaCardFocusPlayIcon(isFocused = isFocused, iconSize = 44.dp)
-
-                if (!vod.vodRemarks.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .align(Alignment.TopStart)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(PrimaryYellow.copy(alpha = 0.9f))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = vod.vodRemarks,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = BackgroundDark,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                val score = vod.vodScore?.toFloatOrNull()
-                if (score != null && score > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .align(Alignment.TopEnd)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = "%.1f".format(score),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF10b981)
-                        )
-                    }
-                }
-
-                if (!vod.vodYear.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .align(Alignment.BottomStart)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = vod.vodYear,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextPrimary
-                        )
-                    }
-                }
-            }
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))

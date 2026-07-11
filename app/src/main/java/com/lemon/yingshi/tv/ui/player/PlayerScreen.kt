@@ -1296,6 +1296,13 @@ private fun PlayerControls(
         val progress = if (playerState.duration > 0) {
             playerState.currentPosition.toFloat() / playerState.duration.toFloat()
         } else 0f
+        val bufferedProgress = if (playerState.duration > 0) {
+            val prefetchEstimateMs = (playerState.prefetchProgress * playerState.duration).toLong()
+            val bufferedMs = maxOf(playerState.bufferedPosition, prefetchEstimateMs)
+            bufferedMs.toFloat() / playerState.duration.toFloat()
+        } else {
+            playerState.prefetchProgress
+        }
         val progressInteractionSource = remember { MutableInteractionSource() }
         val isProgressFocused = progressInteractionSource.collectIsFocusedAsState().value
         val bubbleHighlighted = isProgressFocused || forceProgressBubbleHighlight
@@ -1405,16 +1412,34 @@ private fun PlayerControls(
                 }
                 .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
         ) {
+            // 预缓存/可播放缓冲（浅灰，在播放进度下层）
+            if (bufferedProgress > progress) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(bufferedProgress.coerceIn(0f, 1f))
+                        .height(PROGRESS_BAR_HEIGHT)
+                        .background(Color.White.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                )
+            }
             // 已播放进度（黄色）
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(progress)
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
                     .height(PROGRESS_BAR_HEIGHT)
                     .background(PrimaryYellow, RoundedCornerShape(3.dp))
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        if (playerState.prefetchActive && playerState.prefetchTotalSegments > 0) {
+            Text(
+                text = "预缓存 ${playerState.prefetchCompletedSegments}/${playerState.prefetchTotalSegments}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.65f),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(if (playerState.prefetchActive) 12.dp else 24.dp))
 
         // 控制按钮栏
         Row(
