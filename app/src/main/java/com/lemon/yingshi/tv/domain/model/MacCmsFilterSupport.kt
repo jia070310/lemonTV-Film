@@ -13,7 +13,12 @@ object MacCmsFilterSupport {
     const val FILTER_FETCH_PAGE_SIZE = 100
     const val FILTER_MAX_PAGES_PER_TYPE = 200
     const val FILTER_UI_PAGE_SIZE = 20
+    /** 首屏快速展示：只拉一页数据量 */
+    const val FILTER_QUICK_INITIAL_TARGET = FILTER_UI_PAGE_SIZE
+    /** 后台预取池上限，供「加载更多」使用 */
     const val FILTER_INITIAL_TARGET = FILTER_UI_PAGE_SIZE * 5
+    /** 筛选网格首屏可见条数（约 2 行 × 5 列），优先补封面 */
+    const val FILTER_VISIBLE_ENRICH_COUNT = 10
 
     data class FilterOptionRow(
         val plot: List<String>,

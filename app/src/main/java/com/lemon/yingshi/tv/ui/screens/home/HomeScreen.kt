@@ -151,6 +151,7 @@ fun HomeScreen(
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToRecentWatching: () -> Unit = {},
+    onNavigateToRecommended: () -> Unit = {},
     onNavigateToFilter: (typeId: Int, navTypeId: Int) -> Unit = { _, _ -> },
     onPlayFromHistory: (com.lemon.yingshi.tv.domain.service.WatchHistoryItem) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
@@ -190,12 +191,20 @@ fun HomeScreen(
     // MacCMS 首页数据
     val macCmsHomeState by macCmsHomeViewModel.uiState.collectAsState()
     val macCmsSections = macCmsHomeState.sections
+    val recommendedItems = macCmsHomeState.recommendedItems
 
-    val rowSpecs = remember(recentWatchHistory, macCmsSections) {
+    val rowSpecs = remember(recentWatchHistory, recommendedItems, macCmsSections) {
         buildList {
             if (recentWatchHistory.isNotEmpty()) {
                 val displayCount = recentWatchHistory.size.coerceAtMost(HOME_SECTION_MAX_ITEMS)
                 add(displayCount + if (recentWatchHistory.size > HOME_SECTION_MAX_ITEMS) 1 else 0)
+            }
+            if (recommendedItems.isNotEmpty()) {
+                val displayCount = recommendedItems.size.coerceAtMost(HOME_RECOMMENDED_HOME_ITEMS)
+                val firstRowCount = minOf(HOME_RECOMMENDED_COLUMNS, displayCount)
+                if (firstRowCount > 0) add(firstRowCount)
+                val secondRowCount = (displayCount - HOME_RECOMMENDED_COLUMNS).coerceAtLeast(0) + 1
+                add(secondRowCount)
             }
             macCmsSections.forEach { section ->
                 val displayCount = section.items.size.coerceAtMost(HOME_SECTION_MAX_ITEMS)
@@ -294,7 +303,7 @@ fun HomeScreen(
             item {
                 HomeHeader(
                     onSearchClick = onNavigateToSearch,
-                    onRefreshClick = { macCmsHomeViewModel.loadHome() },
+                    onRefreshClick = { macCmsHomeViewModel.loadHome(forceRefresh = true) },
                     notification = currentNotification,
                     firstRowFocusRequesters = rowFocusRequesters.firstOrNull(),
                     headerFocusRequesters = headerFocusRequesters,
@@ -329,22 +338,41 @@ fun HomeScreen(
                     )
                 }
                 rowIndexCursor++
+                item { Spacer(modifier = Modifier.height(32.dp)) }
             }
-            item { Spacer(modifier = Modifier.height(32.dp)) }
 
-            // MacCMS 分类内容行
-            if (macCmsHomeState.isLoading) {
+            // 最新推荐栏目 - 推荐等级 9，两行六列
+            if (recommendedItems.isNotEmpty()) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = PrimaryYellow)
-                    }
+                    SectionTitle(
+                        title = "最新推荐",
+                        accentColor = Color(0xFFf97316)
+                    )
                 }
-            } else if (!macCmsHomeState.isConfigured) {
+                item {
+                    RecommendedVodSection(
+                        items = recommendedItems,
+                        onItemClick = { vod -> onNavigateToDetail(MacCmsIds.encode(vod.vodId)) },
+                        onMoreClick = onNavigateToRecommended,
+                        rowFocusRequesters = rowFocusRequesters,
+                        firstRowIndex = rowIndexCursor,
+                        headerFocusRequesters = headerFocusRequesters,
+                        isFirstContentRow = rowIndexCursor == 0,
+                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 2) }
+                    )
+                }
+                item { Spacer(modifier = Modifier.height(32.dp)) }
+                rowIndexCursor += if (recommendedItems.size.coerceAtMost(HOME_RECOMMENDED_HOME_ITEMS)
+                        .coerceAtMost(HOME_RECOMMENDED_COLUMNS) > 0
+                ) {
+                    2
+                } else {
+                    1
+                }
+            }
+
+            // MacCMS 分类内容行（分块加载：有内容先展示，仅在全空时显示加载圈）
+            if (!macCmsHomeState.isConfigured) {
                 item {
                     Box(
                         modifier = Modifier
@@ -387,7 +415,7 @@ fun HomeScreen(
                     item { Spacer(modifier = Modifier.height(32.dp)) }
                     rowIndexCursor++
                 }
-                if (macCmsSections.isEmpty()) {
+                if (macCmsSections.isEmpty() && recommendedItems.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -395,11 +423,15 @@ fun HomeScreen(
                                 .padding(48.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = macCmsHomeState.error ?: "暂无内容",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = TextMuted
-                            )
+                            if (macCmsHomeState.isLoading || macCmsHomeState.isLoadingSections) {
+                                CircularProgressIndicator(color = PrimaryYellow)
+                            } else {
+                                Text(
+                                    text = macCmsHomeState.error ?: "暂无内容",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TextMuted
+                                )
+                            }
                         }
                     }
                 }

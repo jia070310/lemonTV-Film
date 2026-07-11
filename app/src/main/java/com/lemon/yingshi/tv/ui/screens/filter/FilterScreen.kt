@@ -119,9 +119,16 @@ fun FilterScreen(
     val firstCardFocusRequester = remember { FocusRequester() }
     val loadMoreFocusRequester = remember { FocusRequester() }
     val moveToContent: () -> Boolean = {
-        firstCardFocusRequester.tryRequestFocus()
-            || firstChipFocusRequester.tryRequestFocus()
+        firstChipFocusRequester.tryRequestFocus()
+            || firstCardFocusRequester.tryRequestFocus()
             || contentFocusRequester.tryRequestFocus()
+    }
+
+    // 打开/回到筛选页时，默认焦点落在左上角：左侧分类栏第一项
+    LaunchedEffect(Unit, uiState.treeCategories.size) {
+        if (uiState.treeCategories.isEmpty()) return@LaunchedEffect
+        delay(100)
+        sidebarFocusRequester.tryRequestFocus()
     }
 
     Box(
@@ -267,6 +274,7 @@ private fun FilterSidebarItem(
     modifier: Modifier = Modifier,
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
+    val focusManager = LocalFocusManager.current
     Card(
         onClick = onClick,
         colors = CardDefaults.colors(
@@ -280,7 +288,11 @@ private fun FilterSidebarItem(
                 if (onMoveRight != null) {
                     Modifier.onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
-                            onMoveRight()
+                            // 优先按屏幕位置平移，找不到时再落到筛选条
+                            if (!focusManager.moveFocus(FocusDirection.Right)) {
+                                onMoveRight()
+                            }
+                            true
                         } else {
                             false
                         }
@@ -383,10 +395,8 @@ private fun FilterScrollContent(
     }
 
     LaunchedEffect(uiState.isLoadingMore) {
+        // 仅在用户触发「加载更多」时把焦点移到按钮，避免首屏加载完成后抢走默认焦点
         if (uiState.isLoadingMore) {
-            loadMoreFocusRequester.tryRequestFocus()
-        } else if (uiState.hasMoreResults) {
-            delay(80)
             loadMoreFocusRequester.tryRequestFocus()
         }
     }
@@ -406,7 +416,8 @@ private fun FilterScrollContent(
                 totalCount = uiState.totalCount,
                 currentPage = uiState.currentPage,
                 totalPages = uiState.totalPages,
-                onNavigateBack = onNavigateBack
+                onNavigateBack = onNavigateBack,
+                sidebarFocusRequester = sidebarFocusRequester
             )
         }
 
@@ -486,7 +497,6 @@ private fun FilterScrollContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 32.dp, vertical = 8.dp)
-                            .focusProperties { left = FocusRequester.Cancel }
                             .then(cardLongPressUpModifier),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -496,8 +506,8 @@ private fun FilterScrollContent(
                                 FilterVodCard(
                                     vod = uiState.items[index],
                                     onClick = { onItemClick(uiState.items[index]) },
-                                    modifier = Modifier
-                                        .weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    cardModifier = Modifier
                                         .then(
                                             if (index == 0) {
                                                 Modifier.focusRequester(firstCardFocusRequester)
@@ -512,7 +522,10 @@ private fun FilterScrollContent(
                                                         event.type == KeyEventType.KeyDown &&
                                                         event.key == Key.DirectionLeft
                                                     ) {
-                                                        sidebarFocusRequester.tryRequestFocus()
+                                                        // 筛选条可能已滚出屏幕被回收，tryRequestFocus 安全降级到侧栏
+                                                        firstChipFocusRequester.tryRequestFocus()
+                                                            || sidebarFocusRequester.tryRequestFocus()
+                                                        true
                                                     } else {
                                                         false
                                                     }
@@ -536,12 +549,13 @@ private fun FilterScrollContent(
                             .padding(vertical = 24.dp)
                             .focusRequester(loadMoreFocusRequester)
                             .focusProperties {
-                                left = FocusRequester.Cancel
                                 down = FocusRequester.Cancel
                             }
                             .onPreviewKeyEvent { event ->
                                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                                    sidebarFocusRequester.tryRequestFocus()
+                                    firstChipFocusRequester.tryRequestFocus()
+                                        || sidebarFocusRequester.tryRequestFocus()
+                                    true
                                 } else {
                                     false
                                 }
@@ -711,7 +725,8 @@ private fun FilterTopBar(
     totalCount: Int,
     currentPage: Int,
     totalPages: Int,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    sidebarFocusRequester: FocusRequester
 ) {
     Row(
         modifier = Modifier
@@ -726,7 +741,9 @@ private fun FilterTopBar(
                 contentColor = TextPrimary,
                 focusedContainerColor = PrimaryYellow,
                 focusedContentColor = BackgroundDark
-            )
+            ),
+            modifier = Modifier
+                .focusProperties { left = sidebarFocusRequester }
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
         }
@@ -855,7 +872,11 @@ private fun FilterChipRow(
                             if (isFirstChip && chipRequester != null) {
                                 Modifier
                                     .focusRequester(chipRequester)
-                                    .focusProperties { left = FocusRequester.Cancel }
+                                    .focusProperties {
+                                        if (sidebarFocusRequester != null) {
+                                            left = sidebarFocusRequester
+                                        }
+                                    }
                                     .onPreviewKeyEvent { event ->
                                         if (
                                             sidebarFocusRequester != null &&
@@ -863,6 +884,7 @@ private fun FilterChipRow(
                                             event.key == Key.DirectionLeft
                                         ) {
                                             sidebarFocusRequester.tryRequestFocus()
+                                            true
                                         } else {
                                             false
                                         }
@@ -893,14 +915,15 @@ private fun FilterChipRow(
 private fun FilterVodCard(
     vod: MacCmsVodItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cardModifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
     Column(modifier = modifier) {
         Card(
             onClick = onClick,
-            modifier = Modifier
+            modifier = cardModifier
                 .fillMaxWidth()
                 .height(220.dp)
                 .onFocusChanged { isFocused = it.isFocused },

@@ -19,6 +19,7 @@ import com.lemon.yingshi.tv.ui.screens.filter.FilterScreen
 import com.lemon.yingshi.tv.ui.screens.home.HomeScreen
 import com.lemon.yingshi.tv.ui.screens.home.HomeViewModel
 import com.lemon.yingshi.tv.ui.screens.recentwatching.RecentWatchingScreen
+import com.lemon.yingshi.tv.ui.screens.recommended.RecommendedScreen
 import com.lemon.yingshi.tv.ui.screens.search.SearchScreen
 import com.lemon.yingshi.tv.ui.screens.settings.SettingsScreen
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,7 @@ sealed class Screen(val route: String) {
             "player/$mediaId/${episodeId ?: "null"}"
     }
     data object RecentWatching : Screen("recent_watching")
+    data object Recommended : Screen("recommended")
     data object Filter : Screen("filter?typeId={typeId}&navTypeId={navTypeId}") {
         fun createRoute(typeId: Int = -1, navTypeId: Int = -1): String =
             "filter?typeId=$typeId&navTypeId=$navTypeId"
@@ -69,6 +71,9 @@ fun LomenTVNavigation(
                     },
                     onNavigateToRecentWatching = {
                         navController.navigate(Screen.RecentWatching.route)
+                    },
+                    onNavigateToRecommended = {
+                        navController.navigate(Screen.Recommended.route)
                     },
                     onNavigateToFilter = { typeId, navTypeId ->
                         navController.navigate(Screen.Filter.createRoute(typeId, navTypeId))
@@ -165,6 +170,17 @@ fun LomenTVNavigation(
                                 recentContext.startActivity(intent)
                             }
                         }
+                    }
+                )
+            }
+
+            composable(Screen.Recommended.route) {
+                RecommendedScreen(
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onNavigateToDetail = { mediaId ->
+                        navController.navigate(Screen.Detail.createRoute(mediaId))
                     }
                 )
             }

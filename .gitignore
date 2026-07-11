@@ -56,3 +56,4 @@ app/debug/
 !README.md
 !LICENSE
 !NOTIFICATIONS_CONFIG.md
+!RELEASES/*.md

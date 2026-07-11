@@ -48,6 +48,27 @@ data class MacCmsTypeListResponse(
     val info: MacCmsTypeListInfo? = null
 )
 
+/** MacCMS REST /api.php/vod/get_detail/ 返回，info 为视频行数组 */
+data class MacCmsRestVodDetailResponse(
+    val code: Int = 0,
+    val msg: String? = null,
+    val info: List<MacCmsVodItem>? = null
+)
+
+/** MacCMS REST /api.php/vod/get_list/ 返回 */
+data class MacCmsRestVodListInfo(
+    val offset: Int = 0,
+    val limit: Int = 0,
+    val total: Int = 0,
+    val rows: List<MacCmsVodItem> = emptyList()
+)
+
+data class MacCmsRestVodListResponse(
+    val code: Int = 0,
+    val msg: String? = null,
+    val info: MacCmsRestVodListInfo? = null
+)
+
 data class MacCmsVodItem(
     @SerializedName("vod_id")
     val vodId: Int = 0,
@@ -92,7 +113,9 @@ data class MacCmsVodItem(
     @SerializedName("vod_director")
     val vodDirector: String? = null,
     @SerializedName("vod_time")
-    val vodTime: String? = null
+    val vodTime: String? = null,
+    @SerializedName("vod_level")
+    val vodLevel: Int? = null
 )
 
 data class MacCmsConnectionResult(
@@ -121,6 +144,10 @@ data class MacCmsFilterParams(
     val year: String = "",
     val vodClass: String = "",
     val sort: MacCmsSortOption = MacCmsSortOption.LATEST,
+    /** 为 true 时使用 sort_direction=asc */
+    val sortAscending: Boolean = false,
+    /** 推荐等级，与 MacCMS 模板标签 level="9" 一致 */
+    val level: Int? = null,
     val page: Int = 1,
     val pageSize: Int = 30
 )

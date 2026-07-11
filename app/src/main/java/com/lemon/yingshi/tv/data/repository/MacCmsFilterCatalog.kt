@@ -39,5 +39,6 @@ internal fun mergeListRowWithDetail(base: MacCmsVodItem, detail: MacCmsVodItem):
         vodRemarks = detail.vodRemarks ?: base.vodRemarks,
         vodPic = detail.vodPic ?: base.vodPic,
         vodPicThumb = detail.vodPicThumb ?: base.vodPicThumb,
-        vodPicSlide = detail.vodPicSlide ?: base.vodPicSlide
+        vodPicSlide = detail.vodPicSlide ?: base.vodPicSlide,
+        vodLevel = detail.vodLevel ?: base.vodLevel
     )

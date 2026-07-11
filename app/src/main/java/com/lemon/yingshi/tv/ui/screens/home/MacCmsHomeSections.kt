@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +55,12 @@ import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 
 const val HOME_MACCMS_MAX_ITEMS = 10
+/** 首页横向行首屏可见卡片数，优先补全封面 */
+const val HOME_VISIBLE_ENRICH_ITEMS = 6
+const val HOME_RECOMMENDED_COLUMNS = 6
+const val HOME_RECOMMENDED_ROWS = 2
+const val HOME_RECOMMENDED_HOME_ITEMS = 11
+const val HOME_RECOMMENDED_PAGE_SIZE = 30
 
 fun accentColorForCategory(typeName: String): Color {
     return when (mapMacCmsTypeName(typeName)) {
@@ -80,7 +87,9 @@ fun MacCmsVodRow(
     isFirstContentRow: Boolean,
     onFocusedColumnChanged: (Int) -> Unit,
     showTopVersionBadge: Boolean,
-    topVersionBadgeFocusRequester: FocusRequester?
+    topVersionBadgeFocusRequester: FocusRequester?,
+    upRowFocusRequesters: List<FocusRequester>? = null,
+    downRowFocusRequesters: List<FocusRequester>? = null
 ) {
     val displayCount = items.size.coerceAtMost(HOME_MACCMS_MAX_ITEMS)
     val totalItems = displayCount + if (showMore) 1 else 0
@@ -108,7 +117,10 @@ fun MacCmsVodRow(
                         .focusProperties {
                             if (isFirstContentRow) {
                                 up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                            } else {
+                                upRowFocusRequesters?.getOrNull(index)?.let { up = it }
                             }
+                            downRowFocusRequesters?.getOrNull(index)?.let { down = it }
                         }
                 )
             } else {
@@ -125,7 +137,10 @@ fun MacCmsVodRow(
                         .focusProperties {
                             if (isFirstContentRow) {
                                 up = headerFocusRequesters[index.coerceAtMost(headerFocusRequesters.lastIndex)]
+                            } else {
+                                upRowFocusRequesters?.getOrNull(index)?.let { up = it }
                             }
+                            downRowFocusRequesters?.getOrNull(index)?.let { down = it }
                         }
                 )
             }
@@ -135,7 +150,65 @@ fun MacCmsVodRow(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun MacCmsVodCard(
+fun RecommendedVodSection(
+    items: List<MacCmsVodItem>,
+    onItemClick: (MacCmsVodItem) -> Unit,
+    onMoreClick: () -> Unit,
+    rowFocusRequesters: List<List<FocusRequester>>,
+    firstRowIndex: Int,
+    headerFocusRequesters: List<FocusRequester>,
+    isFirstContentRow: Boolean,
+    onFocusedColumnChanged: (Int) -> Unit,
+    showTopVersionBadge: Boolean = false,
+    topVersionBadgeFocusRequester: FocusRequester? = null
+) {
+    val displayItems = items.take(HOME_RECOMMENDED_HOME_ITEMS)
+    val firstRowItems = displayItems.take(HOME_RECOMMENDED_COLUMNS)
+    val secondRowItems = displayItems.drop(HOME_RECOMMENDED_COLUMNS)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        if (firstRowItems.isNotEmpty()) {
+            MacCmsVodRow(
+                items = firstRowItems,
+                onItemClick = onItemClick,
+                showMore = false,
+                moreLabel = "更多",
+                onMoreClick = {},
+                currentRowFocusRequesters = rowFocusRequesters.getOrNull(firstRowIndex),
+                headerFocusRequesters = headerFocusRequesters,
+                isFirstContentRow = isFirstContentRow,
+                onFocusedColumnChanged = onFocusedColumnChanged,
+                showTopVersionBadge = showTopVersionBadge,
+                topVersionBadgeFocusRequester = topVersionBadgeFocusRequester,
+                downRowFocusRequesters = rowFocusRequesters.getOrNull(firstRowIndex + 1)
+            )
+        }
+        MacCmsVodRow(
+            items = secondRowItems,
+            onItemClick = onItemClick,
+            showMore = true,
+            moreLabel = "更多",
+            onMoreClick = onMoreClick,
+            currentRowFocusRequesters = rowFocusRequesters.getOrNull(
+                firstRowIndex + if (firstRowItems.isNotEmpty()) 1 else 0
+            ),
+            headerFocusRequesters = headerFocusRequesters,
+            isFirstContentRow = isFirstContentRow && firstRowItems.isEmpty(),
+            onFocusedColumnChanged = onFocusedColumnChanged,
+            showTopVersionBadge = showTopVersionBadge,
+            topVersionBadgeFocusRequester = topVersionBadgeFocusRequester,
+            upRowFocusRequesters = rowFocusRequesters.getOrNull(firstRowIndex)
+                .takeIf { firstRowItems.isNotEmpty() }
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+internal fun MacCmsVodCard(
     vod: MacCmsVodItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -160,47 +233,7 @@ private fun MacCmsVodCard(
                 )
             )
         ) {
-            Box {
-                if (!vod.vodPic.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(vod.vodPic)
-                            .crossfade(false)
-                            .build(),
-                        contentDescription = vod.vodName,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else if (!isFocused) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(SurfaceDark),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-                    }
-                }
-                MediaCardFocusPlayIcon(isFocused = isFocused, iconSize = 48.dp)
-                if (!vod.vodRemarks.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .align(Alignment.TopStart)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(PrimaryYellow.copy(alpha = 0.9f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = vod.vodRemarks,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = BackgroundDark,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
+            MacCmsVodCardPoster(vod = vod, isFocused = isFocused)
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -210,5 +243,59 @@ private fun MacCmsVodCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MacCmsVodCardPoster(
+    vod: MacCmsVodItem,
+    isFocused: Boolean
+) {
+    Box {
+        if (!vod.vodPic.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(vod.vodPic)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = vod.vodName,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else if (!isFocused) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(SurfaceDark),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+        MediaCardFocusPlayIcon(isFocused = isFocused, iconSize = 48.dp)
+        if (!vod.vodRemarks.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .align(Alignment.TopStart)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(PrimaryYellow.copy(alpha = 0.9f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = vod.vodRemarks,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = BackgroundDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }

@@ -27,6 +27,8 @@ import javax.inject.Singleton
 data class MacCmsCategoryFetchResult(
     val items: List<MacCmsVodItem>,
     val total: Int,
+    val page: Int = 1,
+    val pageCount: Int = 1,
     val error: String? = null
 )
 
@@ -119,6 +121,7 @@ class MacCmsRepository @Inject constructor(
         macCmsPreferences.saveServerUrl(url)
         if (oldUrl != normalizedNew) {
             invalidateTaxonomyCache()
+            invalidateRecommendedCache()
             cachedPlayerShowNames = emptyMap()
             cachedPlayerConfigBaseUrl = null
         }
@@ -192,7 +195,8 @@ class MacCmsRepository @Inject constructor(
     suspend fun fetchLatestForNavCategory(
         category: MacCmsNavCategory,
         taxonomy: MacCmsTaxonomy,
-        limit: Int = 10
+        limit: Int = 10,
+        enrichDetail: Boolean = true
     ): MacCmsCategoryFetchResult {
         val typeIds = taxonomy.listQueryTypeIds(category)
         if (typeIds.isEmpty()) return MacCmsCategoryFetchResult(emptyList(), 0)
@@ -228,16 +232,529 @@ class MacCmsRepository @Inject constructor(
             .sortedByDescending { vodTimeMs(it.vodTime) }
             .take(limit)
         if (sorted.isEmpty()) {
-            return MacCmsCategoryFetchResult(emptyList(), 0, lastError)
+            return MacCmsCategoryFetchResult(emptyList(), 0, error = lastError)
         }
-        val enriched = enrichWithDetail(baseUrl = getServerUrl(), rows = sorted)
+        val displayItems = if (enrichDetail) {
+            enrichWithDetail(baseUrl = getServerUrl(), rows = sorted)
+        } else {
+            prepareListForDisplay(baseUrl = getServerUrl(), rows = sorted)
+        }
         return MacCmsCategoryFetchResult(
-            items = enriched,
-            total = totalCount.coerceAtLeast(enriched.size)
+            items = displayItems,
+            total = totalCount.coerceAtLeast(displayItems.size)
         )
     }
 
-    suspend fun fetchLatestForType(typeId: Int, limit: Int = 10): MacCmsCategoryFetchResult {
+    /** 拉取指定推荐等级的视频（首页「最新推荐」使用 level=9） */
+    suspend fun fetchRecommendedVods(
+        level: Int = 9,
+        page: Int = 1,
+        pageSize: Int = 30,
+        homePreviewLimit: Int? = null,
+        fullScan: Boolean = homePreviewLimit == null
+    ): MacCmsCategoryFetchResult {
+        val all = fetchAllRecommendedLevel9(level = level, fullScan = fullScan)
+        if (homePreviewLimit != null) {
+            return MacCmsCategoryFetchResult(
+                items = all.take(homePreviewLimit),
+                total = all.size
+            )
+        }
+        val safePage = page.coerceAtLeast(1)
+        val start = (safePage - 1) * pageSize
+        val pageItems = all.drop(start).take(pageSize)
+        val pageCount = if (all.isEmpty()) 1 else ((all.size + pageSize - 1) / pageSize)
+        return MacCmsCategoryFetchResult(
+            items = pageItems,
+            total = all.size,
+            page = safePage.coerceAtMost(pageCount),
+            pageCount = pageCount
+        )
+    }
+
+    @Volatile
+    private var cachedRecommendedItems: List<MacCmsVodItem>? = null
+
+    @Volatile
+    private var cachedRecommendedLevel: Int? = null
+
+    @Volatile
+    private var cachedRecommendedUrl: String? = null
+
+    @Volatile
+    private var cachedRecommendedFullScanComplete: Boolean = false
+
+    fun invalidateRecommendedCache() {
+        cachedRecommendedItems = null
+        cachedRecommendedLevel = null
+        cachedRecommendedUrl = null
+        cachedRecommendedFullScanComplete = false
+    }
+
+    /** 拉取并缓存全部推荐9视频；优先走网页筛选页（与模板 level="9" 一致） */
+    private suspend fun fetchAllRecommendedLevel9(level: Int, fullScan: Boolean): List<MacCmsVodItem> {
+        val baseUrl = getServerUrl()
+        if (
+            cachedRecommendedItems != null &&
+            cachedRecommendedLevel == level &&
+            cachedRecommendedUrl == baseUrl &&
+            (!fullScan || cachedRecommendedFullScanComplete)
+        ) {
+            return cachedRecommendedItems!!
+        }
+
+        fetchRecommendedFromShowPage(baseUrl, level)?.let { fromShowPage ->
+            val sorted = fromShowPage.sortedWith(recommendedSortComparator)
+            cachedRecommendedItems = sorted
+            cachedRecommendedLevel = level
+            cachedRecommendedUrl = baseUrl
+            cachedRecommendedFullScanComplete = true
+            return sorted
+        }
+
+        val firstResponse = fetchVodList(
+            MacCmsFilterParams(
+                level = level,
+                sort = MacCmsSortOption.LATEST,
+                page = 1,
+                pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+            )
+        )
+        if (firstResponse.code != 1) {
+            return cachedRecommendedItems.orEmpty()
+        }
+
+        val apiTotal = firstResponse.total
+        val levelFilterBroken = isRecommendedLevelFilterBroken(apiTotal)
+        val sorted = when {
+            levelFilterBroken -> fetchRecommendedLevelBrokenScan(
+                baseUrl = baseUrl,
+                level = level,
+                firstPage = firstResponse.list,
+                fullScan = fullScan,
+                existing = if (fullScan && cachedRecommendedUrl == baseUrl) cachedRecommendedItems else null
+            )
+            apiTotal in 1..RECOMMENDED_SERVER_FILTER_MAX_TOTAL ->
+                fetchRecommendedServerFiltered(baseUrl, level, apiTotal, firstResponse.list)
+            else -> fetchRecommendedLevelBrokenScan(
+                baseUrl = baseUrl,
+                level = level,
+                firstPage = firstResponse.list,
+                fullScan = fullScan,
+                existing = if (fullScan && cachedRecommendedUrl == baseUrl) cachedRecommendedItems else null
+            )
+        }
+
+        cachedRecommendedItems = sorted
+        cachedRecommendedLevel = level
+        cachedRecommendedUrl = baseUrl
+        cachedRecommendedFullScanComplete = fullScan || cachedRecommendedFullScanComplete
+        return sorted
+    }
+
+    /** 采集接口未按 level 筛选时（total≈全库），通过详情接口在客户端识别推荐等级 */
+    private fun isRecommendedLevelFilterBroken(apiTotal: Int): Boolean =
+        apiTotal > RECOMMENDED_SERVER_FILTER_MAX_TOTAL
+
+    /**
+     * 拉取网页筛选页 `/vod/show/level/N.html`，与模板 `{maccms:vod level="N"}` 同源。
+     * 解析 vod_id 后批量走 provide detail 补全封面与字段。
+     */
+    private suspend fun fetchRecommendedFromShowPage(
+        baseUrl: String,
+        level: Int
+    ): List<MacCmsVodItem>? {
+        val normalizedBase = macCmsPreferences.normalizeBaseUrl(baseUrl).trimEnd('/')
+        if (normalizedBase.isBlank()) return null
+
+        val showUrl = "$normalizedBase/index.php/vod/show/level/$level.html"
+        val html = fetchHttpText(showUrl)?.take(SHOW_PAGE_HTML_MAX_CHARS).orEmpty()
+        if (html.isBlank()) return null
+
+        val vodIds = linkedSetOf<Int>()
+        for (match in SHOW_PAGE_VOD_ID_PATTERN.findAll(html)) {
+            val id = match.groupValues[1].toIntOrNull() ?: continue
+            if (id > 0) vodIds.add(id)
+        }
+        if (vodIds.isEmpty()) return null
+
+        val detailMap = fetchVodRowsByDetailIds(
+            baseUrl = normalizedBase,
+            ids = vodIds.toList(),
+            chunkSize = RECOMMENDED_DETAIL_CHUNK_SIZE
+        )
+        val items = vodIds.mapNotNull { id ->
+            val detail = detailMap[id] ?: return@mapNotNull null
+            if (detail.vodLevel != level) return@mapNotNull null
+            resolveItemAssets(normalizedBase, detail)
+        }
+        return items.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * 服务端 level 参数未生效时的扫描：
+     * - 快速模式（首页）：仅降序扫前几页，凑够预览条数即停
+     * - 完整模式（推荐页）：降序 + 升序深扫，补全全部推荐9
+     */
+    private suspend fun fetchRecommendedLevelBrokenScan(
+        baseUrl: String,
+        level: Int,
+        firstPage: List<MacCmsVodItem>,
+        fullScan: Boolean,
+        existing: List<MacCmsVodItem>? = null
+    ): List<MacCmsVodItem> {
+        val collected = linkedMapOf<Int, MacCmsVodItem>()
+        existing.orEmpty().forEach { item -> collected[item.vodId] = item }
+
+        if (!fullScan || collected.isEmpty()) {
+            scanProvidePagesForLevel(
+                baseUrl = baseUrl,
+                level = level,
+                sortAscending = false,
+                collected = collected,
+                firstPage = if (collected.isEmpty()) firstPage else null,
+                maxPages = if (fullScan) RECOMMENDED_DESC_SCAN_MAX_PAGES else RECOMMENDED_FAST_SCAN_MAX_PAGES,
+                idlePageLimit = if (fullScan) RECOMMENDED_DESC_IDLE_PAGE_LIMIT else RECOMMENDED_FAST_IDLE_PAGE_LIMIT,
+                stopWhenCount = if (fullScan) null else RECOMMENDED_FAST_STOP_COUNT
+            )
+        }
+
+        if (fullScan) {
+            scanAscSupplementPageRanges(baseUrl, level, collected)
+        }
+
+        if (fullScan) {
+            return finalizeRecommendedList(baseUrl, level, collected)
+        }
+        return collected.values.sortedWith(recommendedSortComparator)
+    }
+
+    /** 升序补扫关键页码区间（早期条目 + 后部页码如 47045 所在第 172 页） */
+    private suspend fun scanAscSupplementPageRanges(
+        baseUrl: String,
+        level: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        for (range in RECOMMENDED_ASC_SUPPLEMENT_PAGE_RANGES) {
+            for (page in range) {
+                val response = fetchVodList(
+                    MacCmsFilterParams(
+                        level = level,
+                        sort = MacCmsSortOption.LATEST,
+                        sortAscending = true,
+                        page = page,
+                        pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+                    )
+                )
+                if (response.code != 1 || response.list.isEmpty()) continue
+                absorbLevelMatchedRows(baseUrl, level, response.list, collected)
+            }
+        }
+    }
+
+    private suspend fun scanProvidePagesForLevel(
+        baseUrl: String,
+        level: Int,
+        sortAscending: Boolean,
+        collected: LinkedHashMap<Int, MacCmsVodItem>,
+        firstPage: List<MacCmsVodItem>?,
+        maxPages: Int,
+        idlePageLimit: Int?,
+        stopWhenCount: Int? = null
+    ) {
+        var page = 1
+        var idlePages = 0
+        while (page <= maxPages) {
+            if (stopWhenCount != null && collected.size >= stopWhenCount) break
+            if (idlePageLimit != null && idlePages >= idlePageLimit) break
+            val rows = if (page == 1 && firstPage != null) {
+                firstPage
+            } else {
+                val response = fetchVodList(
+                    MacCmsFilterParams(
+                        level = level,
+                        sort = MacCmsSortOption.LATEST,
+                        sortAscending = sortAscending,
+                        page = page,
+                        pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+                    )
+                )
+                if (response.code != 1 || response.list.isEmpty()) break
+                response.list
+            }
+            val beforeSize = collected.size
+            absorbLevelMatchedRows(baseUrl, level, rows, collected)
+            idlePages = if (collected.size == beforeSize) idlePages + 1 else 0
+            if (rows.size < RECOMMENDED_FETCH_PAGE_SIZE) break
+            page++
+        }
+    }
+
+    private suspend fun absorbLevelMatchedRows(
+        baseUrl: String,
+        level: Int,
+        rows: List<MacCmsVodItem>,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        if (rows.isEmpty()) return
+        val detailMap = fetchVodRowsByDetailIds(
+            baseUrl = baseUrl,
+            ids = rows.map { it.vodId },
+            chunkSize = RECOMMENDED_DETAIL_CHUNK_SIZE
+        )
+        for (row in rows) {
+            val detail = detailMap[row.vodId] ?: continue
+            if (detail.vodLevel != level) continue
+            collected[detail.vodId] = resolveItemAssets(
+                baseUrl,
+                mergeListRowWithDetail(row, detail)
+            )
+        }
+    }
+
+    /** 服务端 level 筛选生效：直接信任列表，不拉详情，分页直到凑齐 total */
+    private suspend fun fetchRecommendedServerFiltered(
+        baseUrl: String,
+        level: Int,
+        apiTotal: Int,
+        firstPage: List<MacCmsVodItem>
+    ): List<MacCmsVodItem> {
+        val collected = linkedMapOf<Int, MacCmsVodItem>()
+        absorbRecommendedListRows(baseUrl, firstPage, collected)
+
+        if (collected.size < apiTotal) {
+            val exactSize = apiTotal.coerceIn(1, RECOMMENDED_FETCH_PAGE_SIZE)
+            val exactResponse = fetchVodList(
+                MacCmsFilterParams(
+                    level = level,
+                    sort = MacCmsSortOption.LATEST,
+                    page = 1,
+                    pageSize = exactSize
+                )
+            )
+            if (exactResponse.code == 1) {
+                absorbRecommendedListRows(baseUrl, exactResponse.list, collected)
+            }
+        }
+
+        var page = 2
+        while (collected.size < apiTotal && page <= RECOMMENDED_MAX_PAGES) {
+            val response = fetchVodList(
+                MacCmsFilterParams(
+                    level = level,
+                    sort = MacCmsSortOption.LATEST,
+                    page = page,
+                    pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+                )
+            )
+            if (response.code != 1 || response.list.isEmpty()) break
+            absorbRecommendedListRows(baseUrl, response.list, collected)
+            if (collected.size >= apiTotal) break
+            page++
+        }
+
+        supplementRecommendedGaps(baseUrl, level, apiTotal, collected)
+
+        return finalizeRecommendedList(baseUrl, level, collected)
+    }
+
+    /** 合并 REST 按推荐等级排序的结果，补回采集接口因播放器过滤遗漏的条目 */
+    private suspend fun finalizeRecommendedList(
+        baseUrl: String,
+        level: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ): List<MacCmsVodItem> {
+        mergeRecommendedFromRestLevelOrder(baseUrl, level, collected)
+        return collected.values.sortedWith(recommendedSortComparator)
+    }
+
+    /**
+     * REST get_list 按 vod_level 降序分页，再用 get_detail 校验等级。
+     * 采集接口 total 会受播放器过滤影响（后台 24 条可能只返回 22），此路径可补全。
+     */
+    private suspend fun mergeRecommendedFromRestLevelOrder(
+        baseUrl: String,
+        level: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        var offset = 0
+        val limit = REST_RECOMMENDED_LEVEL_PAGE_SIZE
+        var pagesWithoutTargetLevel = 0
+        while (pagesWithoutTargetLevel < 2 && offset < REST_RECOMMENDED_LEVEL_SCAN_MAX) {
+            val rows = fetchRestVodListRows(baseUrl, offset, limit, orderby = "level")
+            if (rows.isEmpty()) break
+
+            var foundTargetLevelOnPage = false
+            for (row in rows) {
+                if (collected.containsKey(row.vodId)) {
+                    foundTargetLevelOnPage = true
+                    continue
+                }
+                val item = fetchVodDetailFromRest(baseUrl, row.vodId) ?: continue
+                if (item.vodLevel == level) {
+                    collected[item.vodId] = resolveItemAssets(baseUrl, item)
+                    foundTargetLevelOnPage = true
+                }
+            }
+            if (!foundTargetLevelOnPage) {
+                pagesWithoutTargetLevel++
+            } else {
+                pagesWithoutTargetLevel = 0
+            }
+            offset += limit
+        }
+    }
+
+    /** 补齐列表接口遗漏的推荐条目（如 47045 因播放器过滤未出现在采集列表中） */
+    private suspend fun supplementRecommendedGaps(
+        baseUrl: String,
+        level: Int,
+        apiTotal: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        if (collected.size >= apiTotal) return
+
+        paginateRecommendedInto(
+            baseUrl = baseUrl,
+            level = level,
+            collected = collected,
+            sortAscending = true,
+            stopWhenComplete = true,
+            apiTotal = apiTotal
+        )
+        if (collected.size >= apiTotal) return
+
+        fetchRecommendedSingleItemPages(baseUrl, level, apiTotal, collected, sortAscending = false)
+        if (collected.size >= apiTotal) return
+
+        fetchRecommendedSingleItemPages(baseUrl, level, apiTotal, collected, sortAscending = true)
+    }
+
+    private suspend fun fetchRecommendedSingleItemPages(
+        baseUrl: String,
+        level: Int,
+        apiTotal: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>,
+        sortAscending: Boolean
+    ) {
+        val maxPages = (apiTotal + 5).coerceIn(1, 500)
+        for (page in 1..maxPages) {
+            if (collected.size >= apiTotal) break
+            val response = fetchVodList(
+                MacCmsFilterParams(
+                    level = level,
+                    sort = MacCmsSortOption.LATEST,
+                    sortAscending = sortAscending,
+                    page = page,
+                    pageSize = 1
+                )
+            )
+            if (response.code != 1) continue
+            if (response.list.isNotEmpty()) {
+                absorbRecommendedListRows(baseUrl, response.list, collected)
+            }
+        }
+    }
+
+    private suspend fun paginateRecommendedInto(
+        baseUrl: String,
+        level: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>,
+        sortAscending: Boolean,
+        stopWhenComplete: Boolean,
+        apiTotal: Int
+    ) {
+        var page = 1
+        while (page <= RECOMMENDED_MAX_PAGES) {
+            if (stopWhenComplete && collected.size >= apiTotal) break
+            val response = fetchVodList(
+                MacCmsFilterParams(
+                    level = level,
+                    sort = MacCmsSortOption.LATEST,
+                    sortAscending = sortAscending,
+                    page = page,
+                    pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+                )
+            )
+            if (response.code != 1 || response.list.isEmpty()) break
+            absorbRecommendedListRows(baseUrl, response.list, collected)
+            if (stopWhenComplete && collected.size >= apiTotal) break
+            if (response.list.size < RECOMMENDED_FETCH_PAGE_SIZE && !stopWhenComplete) break
+            page++
+        }
+    }
+
+    /** REST 详情不走采集接口的播放器过滤 */
+    private suspend fun fetchRestVodListRows(
+        baseUrl: String,
+        offset: Int,
+        limit: Int,
+        orderby: String = "time"
+    ): List<MacCmsVodItem> {
+        return runCatching {
+            val url = "$baseUrl/api.php/vod/get_list/?offset=$offset&limit=$limit&orderby=$orderby"
+            val response = macCmsApi.fetchRestVodList(url)
+            if (!response.isSuccessful) return@runCatching emptyList()
+            val body = response.body() ?: return@runCatching emptyList()
+            if (body.code != 1) return@runCatching emptyList()
+            body.info?.rows.orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun fetchVodDetailFromRest(baseUrl: String, vodId: Int): MacCmsVodItem? {
+        return runCatching {
+            val url = "$baseUrl/api.php/vod/get_detail/?vod_id=$vodId"
+            val response = macCmsApi.fetchRestVodDetail(url)
+            if (!response.isSuccessful) return@runCatching null
+            val body = response.body() ?: return@runCatching null
+            if (body.code != 1) return@runCatching null
+            body.info?.firstOrNull()
+        }.getOrNull()
+    }
+
+    private fun prepareListForDisplay(baseUrl: String, rows: List<MacCmsVodItem>): List<MacCmsVodItem> =
+        rows.map { resolveItemAssets(baseUrl, it) }
+
+    private fun absorbRecommendedListRows(
+        baseUrl: String,
+        rows: List<MacCmsVodItem>,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        rows.forEach { row ->
+            collected[row.vodId] = resolveItemAssets(baseUrl, row)
+        }
+    }
+
+    private val recommendedSortComparator =
+        compareByDescending<MacCmsVodItem> { vodTimeMs(it.vodTime) }
+            .thenByDescending { it.vodId }
+
+    companion object {
+        /** 与 MacCMS 模板页 `/vod/show/level/N.html` 中详情链接一致 */
+        private val SHOW_PAGE_VOD_ID_PATTERN = Regex("""vod/detail/id/(\d+)""")
+        private const val SHOW_PAGE_HTML_MAX_CHARS = 512_000
+        /** 服务端 level 筛选生效时，total 通常较小 */
+        private const val RECOMMENDED_SERVER_FILTER_MAX_TOTAL = 200
+        private const val RECOMMENDED_FETCH_PAGE_SIZE = 100
+        private const val RECOMMENDED_MAX_PAGES = 20
+        private const val RECOMMENDED_DESC_SCAN_MAX_PAGES = 50
+        private const val RECOMMENDED_DESC_IDLE_PAGE_LIMIT = 15
+        /** 首页快速预览：只扫前几页，凑够条数即停 */
+        private const val RECOMMENDED_FAST_SCAN_MAX_PAGES = 15
+        private const val RECOMMENDED_FAST_IDLE_PAGE_LIMIT = 6
+        private const val RECOMMENDED_FAST_STOP_COUNT = 12
+        /** 升序补扫区间：前部早期推荐 + 后部页码（实测 47045 在第 172 页） */
+        private val RECOMMENDED_ASC_SUPPLEMENT_PAGE_RANGES = listOf(1..8, 155..195)
+        private const val RECOMMENDED_DETAIL_CHUNK_SIZE = 20
+        private const val REST_RECOMMENDED_LEVEL_PAGE_SIZE = 50
+        private const val REST_RECOMMENDED_LEVEL_SCAN_MAX = 1000
+    }
+
+    suspend fun fetchLatestForType(
+        typeId: Int,
+        limit: Int = 10,
+        enrichDetail: Boolean = true
+    ): MacCmsCategoryFetchResult {
         val response = fetchVodList(
             MacCmsFilterParams(
                 typeId = typeId,
@@ -256,8 +773,12 @@ class MacCmsRepository @Inject constructor(
         val sorted = response.list
             .sortedByDescending { vodTimeMs(it.vodTime) }
             .take(limit)
-        val enriched = enrichWithDetail(baseUrl = getServerUrl(), rows = sorted)
-        return MacCmsCategoryFetchResult(items = enriched, total = response.total)
+        val displayItems = if (enrichDetail) {
+            enrichWithDetail(baseUrl = getServerUrl(), rows = sorted)
+        } else {
+            prepareListForDisplay(baseUrl = getServerUrl(), rows = sorted)
+        }
+        return MacCmsCategoryFetchResult(items = displayItems, total = response.total)
     }
 
     suspend fun fetchFilterResults(
@@ -547,8 +1068,11 @@ class MacCmsRepository @Inject constructor(
             if (params.lang.isNotBlank()) append("&lang=${encode(params.lang)}")
             if (params.year.isNotBlank()) append("&year=${encode(params.year)}")
             if (params.vodClass.isNotBlank()) append("&class=${encode(params.vodClass)}")
+            if (params.level != null) append("&level=${params.level}")
             when (params.sort) {
-                MacCmsSortOption.LATEST -> append("&sort_direction=desc")
+                MacCmsSortOption.LATEST -> {
+                    append("&sort_direction=${if (params.sortAscending) "asc" else "desc"}")
+                }
                 else -> {
                     append("&by=${params.sort.by}")
                     append("&order=${params.sort.order}")

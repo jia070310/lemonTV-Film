@@ -60,7 +60,7 @@ class FilterViewModel @Inject constructor(
             }
 
             try {
-                val loadedTaxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = true)
+                val loadedTaxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = false)
                 taxonomy = loadedTaxonomy
                 val treeCategories = loadedTaxonomy.filterTreeCategories()
 
@@ -203,7 +203,7 @@ class FilterViewModel @Inject constructor(
                 hasMoreResults = !catalogExhausted || newItems.size < catalogPool.size
             )
         }
-        enrichDisplayItems(loadGeneration)
+        enrichDisplayItemsStaged(loadGeneration)
     }
 
     private fun loadResults(reset: Boolean) {
@@ -235,16 +235,16 @@ class FilterViewModel @Inject constructor(
 
             try {
                 val filter = buildFilterState(state, typeIds)
-                val target = if (reset) {
-                    MacCmsFilterSupport.FILTER_INITIAL_TARGET
+                val allowed = tax.allowedTypeIds(navCategory)
+                val quickTarget = if (reset) {
+                    MacCmsFilterSupport.FILTER_QUICK_INITIAL_TARGET
                 } else {
                     catalogPool.size + MacCmsFilterSupport.FILTER_UI_PAGE_SIZE
                 }
-                val allowed = tax.allowedTypeIds(navCategory)
                 val result = macCmsRepository.advanceFilterCatalog(
                     filter = filter,
                     continuation = if (reset) null else catalogContinuation,
-                    targetSortedCount = target,
+                    targetSortedCount = quickTarget,
                     allowedTypeIds = allowed
                 )
                 if (generation != loadGeneration) return@launch
@@ -273,7 +273,39 @@ class FilterViewModel @Inject constructor(
                         error = null
                     )
                 }
-                enrichDisplayItems(generation)
+                enrichDisplayItemsStaged(generation)
+
+                if (reset && !result.exhaustedAll &&
+                    result.sorted.size < MacCmsFilterSupport.FILTER_INITIAL_TARGET
+                ) {
+                    launch {
+                        if (generation != loadGeneration) return@launch
+                        try {
+                            val bgResult = macCmsRepository.advanceFilterCatalog(
+                                filter = filter,
+                                continuation = result.continuation,
+                                targetSortedCount = MacCmsFilterSupport.FILTER_INITIAL_TARGET,
+                                allowedTypeIds = allowed
+                            )
+                            if (generation != loadGeneration) return@launch
+                            catalogContinuation = bgResult.continuation
+                            catalogPool = bgResult.sorted
+                            catalogExhausted = bgResult.exhaustedAll
+                            val bgTotal = computeDisplayTotal(filter, bgResult)
+                            _uiState.update { current ->
+                                if (generation != loadGeneration) return@update current
+                                current.copy(
+                                    totalCount = bgTotal,
+                                    totalPages = uiPageCount(bgTotal.coerceAtLeast(current.items.size)),
+                                    hasMoreResults = !catalogExhausted ||
+                                        current.items.size < catalogPool.size
+                                )
+                            }
+                        } catch (_: Exception) {
+                            // 后台预取失败不影响首屏
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 if (generation != loadGeneration) return@launch
                 _uiState.update {
@@ -330,7 +362,7 @@ class FilterViewModel @Inject constructor(
                         isLoadingMore = false
                     )
                 }
-                enrichDisplayItems(generation)
+                enrichDisplayItemsStaged(generation)
             } catch (e: Exception) {
                 if (generation != loadGeneration) return@launch
                 _uiState.update {
@@ -375,26 +407,50 @@ class FilterViewModel @Inject constructor(
         return if (itemCount <= 0) 1 else (itemCount + size - 1) / size
     }
 
-    /** ac=list 常缺封面/年份等，用 ac=detail 补全可见卡片信息 */
-    private fun enrichDisplayItems(catalogGeneration: Int) {
+    /** ac=list 常缺封面/年份等：先补首屏可见卡片，再后台补全其余 */
+    private fun enrichDisplayItemsStaged(catalogGeneration: Int) {
         val enrichGen = ++enrichGeneration
         viewModelScope.launch {
             val snapshot = _uiState.value.items
             if (snapshot.isEmpty()) return@launch
+            val visibleCount = MacCmsFilterSupport.FILTER_VISIBLE_ENRICH_COUNT
+                .coerceAtMost(snapshot.size)
             try {
-                val enriched = macCmsRepository.enrichVodItemsForDisplay(snapshot)
-                if (enrichGen != enrichGeneration || catalogGeneration != loadGeneration) return@launch
-                _uiState.update { state ->
-                    if (state.items.size != enriched.size ||
-                        state.items.map { it.vodId } != enriched.map { it.vodId }
-                    ) {
-                        return@update state
-                    }
-                    state.copy(items = enriched)
+                val enrichedVisible = macCmsRepository.enrichVodItemsForDisplay(
+                    snapshot.take(visibleCount)
+                )
+                mergeEnrichedItems(snapshot, enrichedVisible, enrichGen, catalogGeneration)
+
+                if (snapshot.size > visibleCount) {
+                    val enrichedRest = macCmsRepository.enrichVodItemsForDisplay(
+                        snapshot.drop(visibleCount)
+                    )
+                    mergeEnrichedItems(
+                        snapshot,
+                        enrichedVisible + enrichedRest,
+                        enrichGen,
+                        catalogGeneration
+                    )
                 }
             } catch (_: Exception) {
                 // 详情补全失败不影响列表展示
             }
+        }
+    }
+
+    private fun mergeEnrichedItems(
+        originalSnapshot: List<MacCmsVodItem>,
+        enriched: List<MacCmsVodItem>,
+        enrichGen: Int,
+        catalogGeneration: Int
+    ) {
+        if (enrichGen != enrichGeneration || catalogGeneration != loadGeneration) return
+        val enrichedMap = enriched.associateBy { it.vodId }
+        _uiState.update { state ->
+            if (state.items.map { it.vodId } != originalSnapshot.map { it.vodId }) {
+                return@update state
+            }
+            state.copy(items = state.items.map { enrichedMap[it.vodId] ?: it })
         }
     }
 

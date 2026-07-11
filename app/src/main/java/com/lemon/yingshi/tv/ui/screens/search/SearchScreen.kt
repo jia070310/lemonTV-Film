@@ -676,7 +676,7 @@ private fun SearchResultGridCard(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SearchPaginationBar(
+internal fun SearchPaginationBar(
     page: Int,
     pageCount: Int,
     onPrevPage: () -> Unit,
