@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -360,29 +362,31 @@ private fun HeroSection(
             )
         }
 
-        // Content
+        // Content — 顶部对齐，避免内容较少时上方留白过多
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 60.dp)
+                .padding(start = 48.dp, end = 48.dp, top = 72.dp, bottom = 24.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
+                    .align(Alignment.TopStart)
                     .width(600.dp)
             ) {
                 // Title
                 Text(
                     text = media.title,
-                    style = MaterialTheme.typography.displayLarge,
+                    style = MaterialTheme.typography.displaySmall,
                     color = TextPrimary,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(bottom = 10.dp)
                 )
 
                 // Rating and Info
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 10.dp)
                 ) {
                     media.rating?.let {
                         Box(
@@ -447,15 +451,18 @@ private fun HeroSection(
                     text = media.overview ?: "暂无简介",
                     style = MaterialTheme.typography.bodyLarge,
                     color = TextSecondary,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 10.dp)
                 )
 
                 // Director / Actors / Release Date
-                MediaMetaInfoSection(media = media)
+                MediaMetaInfoSection(
+                    media = media,
+                    showReleaseDate = media.year.isNullOrBlank()
+                )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // Action Buttons
                 Row(
@@ -476,11 +483,12 @@ private fun HeroSection(
                         ),
                         shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
                         modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .heightIn(min = 48.dp)
                             .focusRequester(playButtonFocusRequester)
                             .focusProperties {
                                 down = lineSectionFocusRequester
                             }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
@@ -509,10 +517,11 @@ private fun HeroSection(
                         ),
                         shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
                         modifier = Modifier
+                            .defaultMinSize(minHeight = 48.dp)
+                            .heightIn(min = 48.dp)
                             .focusProperties {
                                 down = lineSectionFocusRequester
                             }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -573,25 +582,30 @@ private fun PlayInfoLoadingSection(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun MediaMetaInfoSection(media: MediaDetail) {
+private fun MediaMetaInfoSection(
+    media: MediaDetail,
+    showReleaseDate: Boolean = true
+) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         media.director?.let { director ->
-            MetaInfoRow(label = "导演", value = director)
+            MetaInfoRow(label = "导演", value = director, maxLines = 1)
         }
         media.actors?.let { actors ->
-            MetaInfoRow(label = "演员", value = actors)
+            MetaInfoRow(label = "演员", value = actors, maxLines = 1)
         }
-        media.releaseDate?.let { date ->
-            MetaInfoRow(label = "上映时间", value = date)
+        if (showReleaseDate) {
+            media.releaseDate?.let { date ->
+                MetaInfoRow(label = "上映时间", value = date, maxLines = 1)
+            }
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun MetaInfoRow(label: String, value: String) {
+private fun MetaInfoRow(label: String, value: String, maxLines: Int = 2) {
     Row(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -605,7 +619,7 @@ private fun MetaInfoRow(label: String, value: String) {
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
-            maxLines = 2,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
@@ -703,6 +717,11 @@ private fun PlaySourceChip(
     }
 }
 
+private enum class PaginationFocusTarget {
+    PREV,
+    NEXT
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun EpisodesGridSection(
@@ -724,7 +743,7 @@ private fun EpisodesGridSection(
     val buttonWidth = 72.dp
     val buttonHeight = 48.dp
     val firstEpisodeFocusRequester = remember { FocusRequester() }
-    var refocusEpisodesAfterPageChange by remember { mutableStateOf(false) }
+    var refocusPaginationButton by remember { mutableStateOf<PaginationFocusTarget?>(null) }
 
     val latestEpisode = if (sortedEpisodes.isEmpty()) 0 else maxOf(
         sortedEpisodes.maxOfOrNull { it.episodeNumber } ?: 0,
@@ -752,18 +771,29 @@ private fun EpisodesGridSection(
 
             val safePage = currentPage.coerceIn(0, totalPages - 1)
 
-            LaunchedEffect(safePage) {
-                if (refocusEpisodesAfterPageChange) {
-                    delay(48)
-                    runCatching { firstEpisodeFocusRequester.requestFocus() }
-                    refocusEpisodesAfterPageChange = false
+            LaunchedEffect(safePage, refocusPaginationButton) {
+                when (refocusPaginationButton) {
+                    PaginationFocusTarget.PREV -> {
+                        delay(48)
+                        runCatching { prevPageFocusRequester.requestFocus() }
+                    }
+                    PaginationFocusTarget.NEXT -> {
+                        delay(48)
+                        runCatching { nextPageFocusRequester.requestFocus() }
+                    }
+                    null -> Unit
                 }
+                refocusPaginationButton = null
             }
 
             val pageEpisodes = sortedEpisodes
                 .drop(safePage * episodesPerPage)
                 .take(episodesPerPage)
             val gridRowData = pageEpisodes.chunked(columns)
+            val paddedGridRows = List(gridRows) { rowIndex ->
+                gridRowData.getOrNull(rowIndex).orEmpty()
+            }
+            val gridAreaHeight = buttonHeight * gridRows + gridSpacing * (gridRows - 1)
 
             Column {
                 Row(
@@ -799,11 +829,11 @@ private fun EpisodesGridSection(
                             lineSectionFocusRequester = lineSectionFocusRequester,
                             playSourceCount = playSourceCount,
                             onPrevPage = {
-                                refocusEpisodesAfterPageChange = true
+                                refocusPaginationButton = PaginationFocusTarget.PREV
                                 currentPage = (safePage - 1).coerceAtLeast(0)
                             },
                             onNextPage = {
-                                refocusEpisodesAfterPageChange = true
+                                refocusPaginationButton = PaginationFocusTarget.NEXT
                                 currentPage = (safePage + 1).coerceAtMost(totalPages - 1)
                             }
                         )
@@ -811,38 +841,49 @@ private fun EpisodesGridSection(
                 }
 
                 Column(
+                    modifier = Modifier.height(gridAreaHeight),
                     verticalArrangement = Arrangement.spacedBy(gridSpacing)
                 ) {
-                    gridRowData.forEachIndexed { rowIndex, rowEpisodes ->
+                    paddedGridRows.forEachIndexed { rowIndex, rowEpisodes ->
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(gridSpacing)
                         ) {
-                            rowEpisodes.forEachIndexed { colIndex, episode ->
-                                val isSelected = episode.id == selectedEpisodeId
-                                EpisodeNumberButton(
-                                    episodeNumber = episode.episodeNumber,
-                                    isSelected = isSelected,
-                                    buttonWidth = buttonWidth,
-                                    buttonHeight = buttonHeight,
-                                    modifier = Modifier
-                                        .then(
-                                            if (rowIndex == 0 && colIndex == 0) {
-                                                Modifier.focusRequester(firstEpisodeFocusRequester)
-                                            } else {
-                                                Modifier
-                                            }
+                            repeat(columns) { colIndex ->
+                                val episode = rowEpisodes.getOrNull(colIndex)
+                                if (episode != null) {
+                                    val isSelected = episode.id == selectedEpisodeId
+                                    EpisodeNumberButton(
+                                        episodeNumber = episode.episodeNumber,
+                                        isSelected = isSelected,
+                                        buttonWidth = buttonWidth,
+                                        buttonHeight = buttonHeight,
+                                        modifier = Modifier
+                                            .then(
+                                                if (rowIndex == 0 && colIndex == 0) {
+                                                    Modifier.focusRequester(firstEpisodeFocusRequester)
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .focusProperties {
+                                                if (colIndex == 0) {
+                                                    left = FocusRequester.Cancel
+                                                }
+                                                if (rowIndex == 0 && colIndex == 0 && hasPlaySourcesAbove) {
+                                                    up = lineSectionFocusRequester
+                                                }
+                                            },
+                                        onFocus = { onEpisodeFocus(episode) },
+                                        onClick = { onEpisodeClick(episode) }
+                                    )
+                                } else {
+                                    Spacer(
+                                        modifier = Modifier.size(
+                                            width = buttonWidth,
+                                            height = buttonHeight
                                         )
-                                        .focusProperties {
-                                            if (colIndex == 0) {
-                                                left = FocusRequester.Cancel
-                                            }
-                                            if (rowIndex == 0 && colIndex == 0 && hasPlaySourcesAbove) {
-                                                up = lineSectionFocusRequester
-                                            }
-                                        },
-                                    onFocus = { onEpisodeFocus(episode) },
-                                    onClick = { onEpisodeClick(episode) }
-                                )
+                                    )
+                                }
                             }
                         }
                     }

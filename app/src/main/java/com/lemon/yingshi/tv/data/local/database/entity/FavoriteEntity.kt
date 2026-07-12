@@ -2,18 +2,19 @@ package com.lemon.yingshi.tv.data.local.database.entity
 
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
 import com.lemon.yingshi.tv.domain.model.MediaType
 
 @Entity(
     tableName = "favorites",
+    primaryKeys = ["mediaId", "serverUrl"],
     indices = [
-        Index(value = ["mediaId"], unique = true),
+        Index(value = ["serverUrl"]),
         Index(value = ["addedAt"])
     ]
 )
 data class FavoriteEntity(
-    @PrimaryKey val mediaId: String,
+    val mediaId: String,
+    val serverUrl: String = "",
     val title: String,
     val posterUrl: String? = null,
     val backdropUrl: String? = null,

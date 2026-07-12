@@ -24,7 +24,7 @@ class FavoritesViewModel @Inject constructor(
 
     fun removeFavorite(item: FavoriteItem) {
         viewModelScope.launch {
-            favoriteService.removeFavorite(item.mediaId)
+            favoriteService.removeFavorite(item.mediaId, item.serverUrl)
         }
     }
 

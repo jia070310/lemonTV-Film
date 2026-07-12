@@ -16,7 +16,7 @@ import com.lemon.yingshi.tv.data.local.database.entity.WatchHistoryEntity
         SkipConfigEntity::class,
         FavoriteEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

@@ -2,25 +2,31 @@ package com.lemon.yingshi.tv.domain.service
 
 import com.lemon.yingshi.tv.data.local.database.dao.FavoriteDao
 import com.lemon.yingshi.tv.data.local.database.entity.FavoriteEntity
+import com.lemon.yingshi.tv.data.preferences.MacCmsPreferences
 import com.lemon.yingshi.tv.domain.model.MediaType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class FavoriteService @Inject constructor(
-    private val favoriteDao: FavoriteDao
+    private val favoriteDao: FavoriteDao,
+    private val macCmsPreferences: MacCmsPreferences
 ) {
 
     fun getAllFavorites(): Flow<List<FavoriteItem>> {
-        return favoriteDao.getAllFavorites().map { entities ->
-            entities.map { it.toFavoriteItem() }
+        return macCmsPreferences.serverUrl.flatMapLatest { serverUrl ->
+            favoriteDao.getFavoritesByServerUrl(serverUrl).map { entities ->
+                entities.map { it.toFavoriteItem() }
+            }
         }
     }
 
     suspend fun isFavorite(mediaId: String): Boolean {
-        return favoriteDao.isFavorite(mediaId)
+        return favoriteDao.isFavorite(mediaId, currentServerUrl())
     }
 
     suspend fun addFavorite(
@@ -37,6 +43,7 @@ class FavoriteService @Inject constructor(
         favoriteDao.insertFavorite(
             FavoriteEntity(
                 mediaId = mediaId,
+                serverUrl = currentServerUrl(),
                 title = title,
                 posterUrl = posterUrl,
                 backdropUrl = backdropUrl,
@@ -50,8 +57,8 @@ class FavoriteService @Inject constructor(
         )
     }
 
-    suspend fun removeFavorite(mediaId: String) {
-        favoriteDao.deleteFavorite(mediaId)
+    suspend fun removeFavorite(mediaId: String, serverUrl: String? = null) {
+        favoriteDao.deleteFavorite(mediaId, serverUrl ?: currentServerUrl())
     }
 
     suspend fun toggleFavorite(
@@ -65,8 +72,9 @@ class FavoriteService @Inject constructor(
         mediaType: MediaType = MediaType.OTHER,
         rating: Float? = null
     ): Boolean {
-        return if (favoriteDao.isFavorite(mediaId)) {
-            favoriteDao.deleteFavorite(mediaId)
+        val serverUrl = currentServerUrl()
+        return if (favoriteDao.isFavorite(mediaId, serverUrl)) {
+            favoriteDao.deleteFavorite(mediaId, serverUrl)
             false
         } else {
             addFavorite(
@@ -85,12 +93,16 @@ class FavoriteService @Inject constructor(
     }
 
     suspend fun clearAllFavorites() {
-        favoriteDao.clearAllFavorites()
+        favoriteDao.clearFavoritesByServerUrl(currentServerUrl())
     }
+
+    private suspend fun currentServerUrl(): String =
+        macCmsPreferences.serverUrl.first()
 
     private fun FavoriteEntity.toFavoriteItem(): FavoriteItem {
         return FavoriteItem(
             mediaId = mediaId,
+            serverUrl = serverUrl,
             title = title,
             posterUrl = posterUrl,
             backdropUrl = backdropUrl,
@@ -106,6 +118,7 @@ class FavoriteService @Inject constructor(
 
 data class FavoriteItem(
     val mediaId: String,
+    val serverUrl: String,
     val title: String,
     val posterUrl: String?,
     val backdropUrl: String?,
