@@ -117,9 +117,21 @@ object HlsPlaylistParser {
         return runCatching {
             okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) return@use null
-                response.body?.string()
+                val body = response.body?.string() ?: return@use null
+                if (!isValidPlaylistContent(body)) return@use null
+                body
             }
         }.getOrNull()
+    }
+
+    private fun isValidPlaylistContent(content: String): Boolean {
+        val trimmed = content.trimStart()
+        if (trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
+            trimmed.startsWith("<html", ignoreCase = true)
+        ) {
+            return false
+        }
+        return trimmed.startsWith("#EXTM3U") || trimmed.contains("#EXTINF")
     }
 
     private fun pickVariantUrl(content: String, masterUrl: String): String? {

@@ -103,7 +103,7 @@ class PlayerActivity : AppCompatActivity() {
             viewModel.loadSkipConfigForSeries(mediaId, seasonNumber = 0)
             lifecycleScope.launch {
                 episodeList = viewModel.getEpisodeList()
-                binding.episodeButton.isVisible = episodeList.isNotEmpty()
+                binding.episodeButton.isVisible = episodeList.size > 1
             }
         }
 

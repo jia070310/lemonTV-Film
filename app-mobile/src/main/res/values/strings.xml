@@ -186,6 +186,8 @@
     <string name="about_update_latest">当前已是最新版本</string>
     <string name="about_downloading_progress">正在下载更新：%1$d%%</string>
     <string name="about_download_failed">更新下载失败，请稍后重试</string>
+    <string name="about_install_permission">请在设置中允许「安装未知应用」，返回后将自动继续安装</string>
+    <string name="about_install_failed">无法启动安装，请稍后重试或手动安装已下载的更新包</string>
     <string name="about_downloading">下载中 %1$d%%</string>
     <string name="about_stats_cleared">总播放时长已清零</string>
     <string name="about_playback_stats">总播放时间: %1$s</string>
@@ -203,6 +205,9 @@
     <string name="offline_download_batch_added">已加入 %1$d 集到缓存队列</string>
     <string name="offline_download_batch_none">所选集数已在缓存列表中</string>
     <string name="offline_cache_picker_title">选择缓存集数</string>
+    <string name="offline_cache_source_picker_title">选择缓存线路</string>
+    <string name="offline_cache_episode_picker_title_with_source">选择缓存集数 · %1$s</string>
+    <string name="next_step">下一步</string>
     <string name="offline_cache_select_all">全选</string>
     <string name="offline_cache_deselect_all">取消全选</string>
     <string name="offline_cache_selected_count">已选 %1$d 集</string>

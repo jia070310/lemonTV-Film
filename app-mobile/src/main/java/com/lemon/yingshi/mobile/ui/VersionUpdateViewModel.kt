@@ -85,6 +85,10 @@ class VersionUpdateViewModel @Inject constructor(
 
     val downloadFailed: SharedFlow<Unit> = _downloadFailed.asSharedFlow()
 
+    private val _installApk = MutableSharedFlow<java.io.File>(extraBufferCapacity = 1)
+
+    val installApk: SharedFlow<java.io.File> = _installApk.asSharedFlow()
+
 
 
     fun checkForUpdates(currentVersionCode: Int) {
@@ -141,7 +145,7 @@ class VersionUpdateViewModel @Inject constructor(
 
                     viewModelScope.launch {
 
-                        completeDownload(apkFile, downloadService)
+                        completeDownload(apkFile)
 
                     }
 
@@ -155,7 +159,7 @@ class VersionUpdateViewModel @Inject constructor(
 
 
 
-    private suspend fun completeDownload(apkFile: java.io.File?, downloadService: DownloadService) {
+    private suspend fun completeDownload(apkFile: java.io.File?) {
 
         _downloadProgress.value = 100
 
@@ -167,7 +171,7 @@ class VersionUpdateViewModel @Inject constructor(
 
         if (apkFile != null) {
 
-            downloadService.installApk(apkFile)
+            _installApk.emit(apkFile)
 
         } else {
 
@@ -176,8 +180,6 @@ class VersionUpdateViewModel @Inject constructor(
         }
 
     }
-
-
 
     private fun showBannerTemporarily() {
 

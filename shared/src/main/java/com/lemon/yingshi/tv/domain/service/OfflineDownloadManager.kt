@@ -10,7 +10,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Named
@@ -28,7 +27,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -37,15 +38,16 @@ import okhttp3.Request
 class OfflineDownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     @Named("offlineDownload") private val okHttpClient: OkHttpClient,
-    private val offlineDownloadDao: OfflineDownloadDao
+    private val offlineDownloadDao: OfflineDownloadDao,
+    private val mediaUrlResolver: MediaUrlResolver
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
-    private val workerRunning = AtomicBoolean(false)
+    private val scheduleMutex = Mutex()
     private val pausedIds = ConcurrentHashMap.newKeySet<String>()
 
     fun enqueue(@Suppress("UNUSED_PARAMETER") entity: OfflineDownloadEntity) {
-        scope.launch { startWorkerIfNeeded() }
+        scheduleDownloads()
     }
 
     /** 应用启动时恢复因进程退出而中断的下载任务 */
@@ -57,7 +59,7 @@ class OfflineDownloadManager @Inject constructor(
                 updatedAt = System.currentTimeMillis()
             )
             repairLegacyOfflinePlaylists()
-            startWorkerIfNeeded()
+            scheduleDownloads()
         }
     }
 
@@ -72,7 +74,7 @@ class OfflineDownloadManager @Inject constructor(
     }
 
     private suspend fun repairOfflinePlaylistIfNeeded(entity: OfflineDownloadEntity) {
-        val dir = File(context.filesDir, "$OFFLINE_DIR/${entity.id}")
+        val dir = resolveDownloadDir(entity.id)
         if (!dir.exists()) return
         val indexFile = File(dir, "index.m3u8")
         val keyFile = File(dir, HlsPlaylistParser.LOCAL_KEY_FILE)
@@ -176,7 +178,7 @@ class OfflineDownloadManager @Inject constructor(
                         updatedAt = System.currentTimeMillis()
                     )
                 )
-                startWorkerIfNeeded()
+                scheduleDownloads()
             }
         }
     }
@@ -205,12 +207,14 @@ class OfflineDownloadManager @Inject constructor(
             updatedAt = System.currentTimeMillis()
         )
         pausedIds.clear()
-        startWorkerIfNeeded()
+        scheduleDownloads()
     }
 
     fun deleteFiles(id: String) {
         runCatching {
-            File(context.filesDir, "$OFFLINE_DIR/$id").deleteRecursively()
+            resolveDownloadDir(id).deleteRecursively()
+            // 兼容旧版含 ':' 的目录名
+            File(context.filesDir, "$OFFLINE_DIR/$id").takeIf { it.exists() }?.deleteRecursively()
         }
     }
 
@@ -220,20 +224,32 @@ class OfflineDownloadManager @Inject constructor(
         return root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
-    private suspend fun startWorkerIfNeeded() {
-        if (!workerRunning.compareAndSet(false, true)) return
-        try {
-            while (true) {
-                val next = offlineDownloadDao.getNextByStatus(OfflineDownloadStatus.PENDING) ?: break
-                val job = scope.launch { runDownload(next) }
-                activeJobs[next.id] = job
-                runCatching { job.join() }
-                activeJobs.remove(next.id)
+    /** 并行调度多个离线缓存任务（手机端）。 */
+    private fun scheduleDownloads() {
+        scope.launch {
+            val toStart = scheduleMutex.withLock {
+                val pending = offlineDownloadDao
+                    .getAllByStatus(OfflineDownloadStatus.PENDING)
+                    .sortedBy { it.createdAt }
+                val batch = mutableListOf<OfflineDownloadEntity>()
+                for (item in pending) {
+                    if (activeJobs.size + batch.size >= MAX_CONCURRENT_DOWNLOADS) break
+                    if (activeJobs.containsKey(item.id)) continue
+                    batch.add(item)
+                }
+                batch
             }
-        } finally {
-            workerRunning.set(false)
-            if (offlineDownloadDao.getNextByStatus(OfflineDownloadStatus.PENDING) != null) {
-                startWorkerIfNeeded()
+            toStart.forEach { entity ->
+                if (activeJobs.containsKey(entity.id)) return@forEach
+                val job = scope.launch {
+                    try {
+                        runDownload(entity)
+                    } finally {
+                        activeJobs.remove(entity.id)
+                        scheduleDownloads()
+                    }
+                }
+                activeJobs[entity.id] = job
             }
         }
     }
@@ -247,11 +263,13 @@ class OfflineDownloadManager @Inject constructor(
         offlineDownloadDao.updateDownload(started)
 
         try {
+            val resolved = mediaUrlResolver.resolvePlaybackUrl(entity.videoUrl).getOrElse { throw it }
+            val downloadEntity = started.copy(videoUrl = resolved.url)
             val dir = prepareDownloadDir(entity.id)
-            val localUrl = if (isHlsUrl(entity.videoUrl)) {
-                downloadHls(started, dir)
+            val localUrl = if (isHlsUrl(resolved.url)) {
+                downloadHls(downloadEntity, dir, resolved.headers)
             } else {
-                downloadDirectFile(started, dir)
+                downloadDirectFile(downloadEntity, dir, resolved.headers)
             }
             offlineDownloadDao.updateDownload(
                 started.copy(
@@ -284,11 +302,26 @@ class OfflineDownloadManager @Inject constructor(
     }
 
     private fun prepareDownloadDir(id: String): File {
-        return File(context.filesDir, "$OFFLINE_DIR/$id").apply { mkdirs() }
+        val dir = File(context.filesDir, "$OFFLINE_DIR/${toStorageDirName(id)}")
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw IllegalStateException("无法创建离线缓存目录: ${dir.absolutePath}")
+        }
+        return dir
     }
 
-    private suspend fun downloadHls(entity: OfflineDownloadEntity, dir: File): String {
-        val downloadHeaders = buildDownloadHeaders(entity.videoUrl)
+    private fun resolveDownloadDir(id: String): File =
+        File(context.filesDir, "$OFFLINE_DIR/${toStorageDirName(id)}")
+
+    /** MacCMS episodeId 含 ':'，不能直接作为 Android 文件目录名。 */
+    private fun toStorageDirName(downloadId: String): String =
+        downloadId.replace(':', '_').replace('/', '_').replace('\\', '_')
+
+    private suspend fun downloadHls(
+        entity: OfflineDownloadEntity,
+        dir: File,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): String {
+        val downloadHeaders = buildDownloadHeaders(entity.videoUrl, extraHeaders)
         val parsed = HlsPlaylistParser.resolvePlaylistDetails(
             entity.videoUrl,
             downloadHeaders,
@@ -304,13 +337,12 @@ class OfflineDownloadManager @Inject constructor(
         )
         val keyFile = File(dir, HlsPlaylistParser.LOCAL_KEY_FILE)
         if (keyUrl != null && (!keyFile.exists() || keyFile.length() == 0L)) {
-            downloadUrlToFileWithRetry(keyUrl, keyFile, buildDownloadHeaders(keyUrl))
-            Log.i(TAG, "Downloaded HLS encryption key for ${entity.id}")
+            downloadUrlToFileWithRetry(keyUrl, keyFile, buildDownloadHeaders(keyUrl, extraHeaders))
         }
 
         val total = segments.size
         val completed = AtomicInteger(countCompletedSegments(dir, total))
-        val threadCount = min(HLS_THREADS, total).coerceAtLeast(2)
+        val threadCount = min(hlsThreadCount(), total).coerceAtLeast(2)
         val semaphore = Semaphore(threadCount)
 
         if (completed.get() > 0) {
@@ -327,7 +359,7 @@ class OfflineDownloadManager @Inject constructor(
                             downloadUrlToFileWithRetry(
                                 segmentUrl,
                                 target,
-                                buildDownloadHeaders(segmentUrl)
+                                buildDownloadHeaders(segmentUrl, extraHeaders)
                             )
                         }
                         val done = completed.incrementAndGet()
@@ -352,7 +384,11 @@ class OfflineDownloadManager @Inject constructor(
         return Uri.fromFile(indexFile).toString()
     }
 
-    private suspend fun downloadDirectFile(entity: OfflineDownloadEntity, dir: File): String {
+    private suspend fun downloadDirectFile(
+        entity: OfflineDownloadEntity,
+        dir: File,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): String {
         val extension = entity.videoUrl.substringAfterLast('.', "mp4")
             .substringBefore('?')
             .takeIf { it.length in 2..5 } ?: "mp4"
@@ -363,7 +399,7 @@ class OfflineDownloadManager @Inject constructor(
         downloadUrlToFileWithRetry(
             entity.videoUrl,
             target,
-            buildDownloadHeaders(entity.videoUrl)
+            buildDownloadHeaders(entity.videoUrl, extraHeaders)
         ) { downloaded, total ->
             val progress = if (total > 0) {
                 ((downloaded * 100) / total).toInt().coerceIn(0, 99)
@@ -508,24 +544,33 @@ class OfflineDownloadManager @Inject constructor(
         }
     }
 
+    private fun hlsThreadCount(): Int {
+        val activeCount = activeJobs.size.coerceAtLeast(1)
+        return max(2, HLS_THREADS / activeCount)
+    }
+
     private fun isHlsUrl(url: String): Boolean =
         url.contains(".m3u8", ignoreCase = true) ||
             url.contains("format=m3u8", ignoreCase = true)
 
-    private fun buildDownloadHeaders(url: String): Map<String, String> {
-        val parsed = runCatching { URL(url) }.getOrNull() ?: return DEFAULT_DOWNLOAD_HEADERS
+    private fun buildDownloadHeaders(
+        url: String,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): Map<String, String> {
+        val parsed = runCatching { URL(url) }.getOrNull() ?: return DEFAULT_DOWNLOAD_HEADERS + extraHeaders
         val host = parsed.host.orEmpty()
         val referer = when {
             host.contains("gsuus", ignoreCase = true) ||
                 host.contains("gszyi", ignoreCase = true) -> "https://v.gsuus.com/"
             else -> "${parsed.protocol}://${parsed.host}/"
         }
-        return DEFAULT_DOWNLOAD_HEADERS + ("Referer" to referer)
+        return DEFAULT_DOWNLOAD_HEADERS + ("Referer" to referer) + extraHeaders
     }
 
     private companion object {
         const val TAG = "OfflineDownloadManager"
         const val OFFLINE_DIR = "offline_downloads"
+        const val MAX_CONCURRENT_DOWNLOADS = 3
         const val HLS_THREADS = 12
         const val SEGMENT_MAX_RETRIES = 3
         const val DOWNLOAD_BUFFER_SIZE = 256 * 1024

@@ -1,9 +1,11 @@
-﻿package com.lemon.yingshi.tv.data.repository
+package com.lemon.yingshi.tv.data.repository
 
 import com.lemon.yingshi.tv.data.remote.model.MacCmsEpisodeRef
 import com.lemon.yingshi.tv.data.remote.model.MacCmsIds
 import com.lemon.yingshi.tv.data.remote.model.MacCmsPlaySource
 import com.lemon.yingshi.tv.data.remote.parser.MacCmsPlayUrlParser
+import com.lemon.yingshi.tv.domain.model.MacCmsPlayLayout
+import com.lemon.yingshi.tv.domain.model.mapMacCmsTypeName
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,6 +33,10 @@ class MacCmsPlayerHelper @Inject constructor(
             vodPlayNote = vod.vodPlayNote,
             playerShowNames = playerNames
         )
+        val rawType = mapMacCmsTypeName(vod.typeName)
+        if (!MacCmsPlayLayout.shouldShowEpisodePicker(rawType, sources, sourceIndex)) {
+            return emptyList()
+        }
         val source = sources.getOrNull(sourceIndex) ?: return emptyList()
         return source.episodes.mapIndexed { index, episode ->
             MacCmsPlayerEpisode(

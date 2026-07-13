@@ -4,8 +4,8 @@
 
 | 平台 | 包名 | 当前版本 | versionCode |
 |------|------|----------|-------------|
-| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.6** | **10006** |
-| 手机 | `com.lemon.yingshi.mobile` | **v1.0.1** | **10001** |
+| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.7** | **10007** |
+| 手机 | `com.lemon.yingshi.mobile` | **v1.0.2** | **10002** |
 
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
@@ -428,13 +428,15 @@ Release 签名配置见 `app/build.gradle.kts` 与 `app-mobile/build.gradle.kts`
 
 | 平台 | Release 标签 | APK 文件名 |
 |------|--------------|------------|
-| TV | `v1.0.6` | `LomenTV-release-v1.0.6.apk` 或含 `tv` |
-| 手机 | `mobile-v1.0.1` | `LomenMobile-release-v1.0.1.apk`（文件名需含 `mobile`） |
+| TV | `v1.0.7` | `LomenTV-release-v1.0.7.apk` 或含 `tv` |
+| 手机 | `mobile-v1.0.2` | `LomenMobile-release-v1.0.2.apk`（文件名需含 `mobile`） |
 
 ## 版本发布
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| [v1.0.7](RELEASES/v1.0.7.md) | 2026-07-13 | TV：修复电影多线路误显示为选集 |
+| [mobile-v1.0.2](RELEASES/mobile-v1.0.2.md) | 2026-07-13 | 手机：离线缓存完善（先选线路再选集）、并行下载、更新安装修复 |
 | [v1.0.6](RELEASES/v1.0.6.md) | 2026-07-13 | TV：共用 shared 模块、第三方分享页解析播放、播放器解析状态提示 |
 | [mobile-v1.0.1](RELEASES/mobile-v1.0.1.md) | 2026-07-13 | 手机：与 TV 共用 shared 核心层，播放解析与错误提示优化 |
 | [mobile-v1.0.0](RELEASES/mobile-v1.0.0.md) | 2026-07-13 | **手机版首发**：MacCMS 客户端、推荐/筛选/播放/离线缓存、分享页解析 |

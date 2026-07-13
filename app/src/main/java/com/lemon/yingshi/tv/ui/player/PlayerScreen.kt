@@ -1,4 +1,4 @@
-﻿@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 
 package com.lemon.yingshi.tv.ui.player
 
@@ -841,7 +841,7 @@ fun PlayerScreen(
                         showEpisodeListDialog = true
                         lastInteractionTime = System.currentTimeMillis()
                     },
-                    hasEpisodes = episodeList.isNotEmpty(),
+                    hasEpisodes = episodeList.size > 1,
                     onShowSkipConfigDialog = { showSkipConfigDialog = true }
                 )
             }
@@ -860,7 +860,7 @@ fun PlayerScreen(
         }
 
         // 选集窗口（Dialog 隔离焦点，避免光标跑到播放器控件）
-        if (showEpisodeListDialog && episodeList.isNotEmpty()) {
+        if (showEpisodeListDialog && episodeList.size > 1) {
             EpisodeListPanel(
                 episodes = episodeList,
                 currentEpisodeId = sessionEpisodeId,

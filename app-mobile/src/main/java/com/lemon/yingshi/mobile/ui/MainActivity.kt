@@ -115,8 +115,14 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             isDownloading = versionUpdateViewModel.isDownloading,
             downloadProgress = versionUpdateViewModel.downloadProgress,
-            downloadFailed = versionUpdateViewModel.downloadFailed
+            downloadFailed = versionUpdateViewModel.downloadFailed,
+            installApk = versionUpdateViewModel.installApk
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UpdateInstallCoordinator.retryPendingInstall(this)
     }
 
     override fun onDestroy() {

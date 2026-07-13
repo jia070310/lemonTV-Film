@@ -101,6 +101,10 @@ class AboutViewModel @Inject constructor(
 
     val downloadFailed: SharedFlow<Unit> = _downloadFailed.asSharedFlow()
 
+    private val _installApk = MutableSharedFlow<java.io.File>(extraBufferCapacity = 1)
+
+    val installApk: SharedFlow<java.io.File> = _installApk.asSharedFlow()
+
 
 
     private val playbackStatsServiceRef = playbackStatsService
@@ -167,7 +171,7 @@ class AboutViewModel @Inject constructor(
 
                     viewModelScope.launch {
 
-                        completeDownload(apkFile, downloadService)
+                        completeDownload(apkFile)
 
                     }
 
@@ -181,7 +185,7 @@ class AboutViewModel @Inject constructor(
 
 
 
-    private suspend fun completeDownload(apkFile: java.io.File?, downloadService: DownloadService) {
+    private suspend fun completeDownload(apkFile: java.io.File?) {
 
         _downloadProgress.value = 100
 
@@ -193,7 +197,7 @@ class AboutViewModel @Inject constructor(
 
         if (apkFile != null) {
 
-            downloadService.installApk(apkFile)
+            _installApk.emit(apkFile)
 
         } else {
 

@@ -14,6 +14,7 @@ import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.ActivityAboutBinding
 import com.lemon.yingshi.mobile.databinding.ItemAboutActionCardBinding
 import com.lemon.yingshi.mobile.ui.UpdateDownloadDialog
+import com.lemon.yingshi.mobile.ui.UpdateInstallCoordinator
 import com.lemon.yingshi.mobile.ui.settings.SettingsDialogs
 import com.lemon.yingshi.mobile.util.setBackNavigation
 import kotlinx.coroutines.launch
@@ -36,7 +37,8 @@ class AboutActivity : AppCompatActivity() {
             activity = this,
             isDownloading = viewModel.isDownloading,
             downloadProgress = viewModel.downloadProgress,
-            downloadFailed = viewModel.downloadFailed
+            downloadFailed = viewModel.downloadFailed,
+            installApk = viewModel.installApk
         )
 
         val versionCode = packageManager.getPackageInfo(packageName, 0).versionCode
@@ -115,6 +117,11 @@ class AboutActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        UpdateInstallCoordinator.retryPendingInstall(this)
     }
 
     override fun onDestroy() {

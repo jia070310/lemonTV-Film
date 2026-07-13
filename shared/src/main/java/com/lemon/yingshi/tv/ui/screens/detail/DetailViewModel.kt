@@ -11,6 +11,7 @@ import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.data.remote.parser.MacCmsPlayUrlParser
 import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
+import com.lemon.yingshi.tv.domain.model.MacCmsPlayLayout
 import com.lemon.yingshi.tv.domain.model.MediaType
 import com.lemon.yingshi.tv.domain.model.mapMacCmsTypeName
 import com.lemon.yingshi.tv.domain.service.FavoriteService
@@ -88,10 +89,14 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             selectedPlaySourceIndex = index
             val currentState = _uiState.value as? DetailUiState.Success ?: return@launch
-            val rawEpisodes = buildMacCmsEpisodes(currentMediaId!!, index, currentState.media.type)
+            val rawEpisodes = buildMacCmsEpisodes(currentMediaId!!, index)
             val episodes = enrichEpisodesWithWatchHistory(rawEpisodes, currentMediaId!!)
             allEpisodesBySeason = mapOf(1 to episodes)
-            val isEpisodic = currentState.media.type.usesMacCmsEpisodeLayout()
+            val isEpisodic = MacCmsPlayLayout.shouldShowEpisodePicker(
+                rawType = currentState.media.type,
+                sources = macCmsPlaySources,
+                sourceIndex = index
+            )
             _uiState.value = currentState.copy(
                 episodes = if (isEpisodic) episodes else emptyList(),
                 selectedPlaySourceIndex = index,
@@ -146,8 +151,14 @@ class DetailViewModel @Inject constructor(
             currentMediaId = mediaId
             currentPosterUrl = vod.vodPic
             val rawType = mapMacCmsTypeName(vod.typeName)
-            val episodes = buildMacCmsEpisodes(mediaId, selectedPlaySourceIndex, rawType)
-            val displayType = if (episodes.size > 1 && rawType != MediaType.MOVIE) rawType else MediaType.MOVIE
+            val episodes = buildMacCmsEpisodes(mediaId, selectedPlaySourceIndex)
+            val displayType = MacCmsPlayLayout.resolveDisplayType(
+                rawType = rawType,
+                episodeCountInSource = macCmsPlaySources.getOrNull(selectedPlaySourceIndex)
+                    ?.episodes
+                    ?.size
+                    ?: 0
+            )
 
             if (episodes.isNotEmpty()) {
                 allEpisodesBySeason = mapOf(1 to enrichEpisodesWithWatchHistory(episodes, mediaId))
@@ -157,7 +168,9 @@ class DetailViewModel @Inject constructor(
                 allEpisodesBySeason = emptyMap()
             }
 
-            val displayEpisodes = if (displayType.usesMacCmsEpisodeLayout()) {
+            val displayEpisodes = if (
+                MacCmsPlayLayout.shouldShowEpisodePicker(rawType, macCmsPlaySources, selectedPlaySourceIndex)
+            ) {
                 allEpisodesBySeason[1].orEmpty()
             } else {
                 emptyList()
@@ -246,8 +259,7 @@ class DetailViewModel @Inject constructor(
 
     private fun buildMacCmsEpisodes(
         mediaId: String,
-        sourceIndex: Int,
-        mediaType: MediaType
+        sourceIndex: Int
     ): List<EpisodeItem> {
         val source = macCmsPlaySources.getOrNull(sourceIndex) ?: return emptyList()
         return source.episodes.mapIndexed { index, episode ->
@@ -261,12 +273,6 @@ class DetailViewModel @Inject constructor(
             )
         }
     }
-
-    private fun MediaType.usesMacCmsEpisodeLayout(): Boolean =
-        this == MediaType.TV_SHOW ||
-            this == MediaType.VARIETY ||
-            this == MediaType.ANIME ||
-            this == MediaType.DOCUMENTARY
 
     private suspend fun enrichEpisodesWithWatchHistory(
         episodes: List<EpisodeItem>,
@@ -338,17 +344,44 @@ class DetailViewModel @Inject constructor(
         }
     }
 
+    suspend fun getEpisodesForCacheSource(sourceIndex: Int): List<EpisodeItem> {
+        val mediaId = currentMediaId ?: return emptyList()
+        if (sourceIndex !in macCmsPlaySources.indices) return emptyList()
+        return enrichEpisodesWithWatchHistory(
+            buildMacCmsEpisodes(mediaId, sourceIndex),
+            mediaId
+        ).filter { !it.path.isNullOrBlank() }
+    }
+
     suspend fun getEpisodePlaybackInfo(episodeId: String): EpisodePlaybackInfo? {
-        val mediaId = currentMediaId ?: return null
+        if (currentMediaId == null) return null
         val currentState = _uiState.value as? DetailUiState.Success ?: return null
         val episode = allEpisodesBySeason.values.flatten().find { it.id == episodeId } ?: return null
-        val history = resolveEpisodeWatchHistory(mediaId, episodeId)
+        return buildEpisodePlaybackInfo(episode, currentState.media.title)
+    }
+
+    suspend fun buildEpisodePlaybackInfo(episode: EpisodeItem): EpisodePlaybackInfo? {
+        val currentState = _uiState.value as? DetailUiState.Success ?: return null
+        return buildEpisodePlaybackInfo(episode, currentState.media.title)
+    }
+
+    private suspend fun buildEpisodePlaybackInfo(
+        episode: EpisodeItem,
+        mediaTitle: String
+    ): EpisodePlaybackInfo? {
+        val mediaId = currentMediaId ?: return null
+        val path = episode.path?.takeIf { it.isNotBlank() } ?: return null
+        val history = resolveEpisodeWatchHistory(mediaId, episode.id)
         return EpisodePlaybackInfo(
-            videoUrl = episode.path.orEmpty(),
-            title = currentState.media.title,
-            episodeTitle = buildEpisodeLabel(episode),
+            videoUrl = path,
+            title = mediaTitle,
+            episodeTitle = EpisodeLabelFormatter.build(
+                episode.episodeNumber,
+                episode.title,
+                mediaTitle
+            ),
             mediaId = mediaId,
-            episodeId = episodeId,
+            episodeId = episode.id,
             startPosition = history?.progress ?: 0,
             posterUrl = currentPosterUrl
         )

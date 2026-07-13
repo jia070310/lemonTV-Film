@@ -74,12 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
 
-private fun MediaType.usesEpisodeDetailLayout(): Boolean =
-    this == MediaType.TV_SHOW ||
-        this == MediaType.VARIETY ||
-        this == MediaType.ANIME ||
-        this == MediaType.DOCUMENTARY
-
+import com.lemon.yingshi.tv.domain.model.usesMacCmsEpisodeLayout
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun DetailScreen(
@@ -164,7 +159,7 @@ private fun DetailContent(
 ) {
     var focusedEpisodePath by remember(episodes) {
         mutableStateOf(
-            if (media.type.usesEpisodeDetailLayout() && episodes.isNotEmpty()) {
+            if (media.type.usesMacCmsEpisodeLayout() && episodes.isNotEmpty()) {
                 episodes.sortedBy { it.episodeNumber }.firstOrNull()?.path
             } else {
                 media.path
@@ -244,7 +239,7 @@ private fun DetailContent(
             }
         }
 
-        if (media.type.usesEpisodeDetailLayout() && episodes.isNotEmpty()) {
+        if (media.type.usesMacCmsEpisodeLayout() && episodes.isNotEmpty()) {
             item {
                 EpisodesGridSection(
                     episodes = episodes,
@@ -287,7 +282,7 @@ private fun DetailContent(
         if (!isMacCms) {
             item {
                 PathInformationSection(
-                    mediaPath = if (media.type.usesEpisodeDetailLayout()) {
+                    mediaPath = if (media.type.usesMacCmsEpisodeLayout()) {
                         focusedEpisodePath
                     } else {
                         media.path
@@ -431,7 +426,7 @@ private fun HeroSection(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    if (media.type.usesEpisodeDetailLayout()) {
+                    if (media.type.usesMacCmsEpisodeLayout()) {
                     // 最大集号（集号缺失或全被误标为 1 时，用本季条数兜底）
                     val latestEpisode = if (episodes.isEmpty()) 0 else maxOf(
                         episodes.maxOfOrNull { it.episodeNumber } ?: 0,

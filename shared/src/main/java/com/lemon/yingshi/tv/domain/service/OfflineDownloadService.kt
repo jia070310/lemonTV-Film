@@ -182,8 +182,11 @@ class OfflineDownloadService @Inject constructor(
     companion object {
         fun buildDownloadId(serverUrl: String, mediaId: String, episodeId: String?): String {
             val episodePart = episodeId ?: "movie"
-            return "${serverUrl.hashCode()}_${mediaId}_$episodePart"
+            return "${serverUrl.hashCode()}_${sanitizeIdPart(mediaId)}_${sanitizeIdPart(episodePart)}"
         }
+
+        private fun sanitizeIdPart(value: String): String =
+            value.replace(':', '_').replace('/', '_').replace('\\', '_')
     }
 }
 

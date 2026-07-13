@@ -53,7 +53,8 @@ object UpdateDownloadDialog {
         activity: AppCompatActivity,
         isDownloading: StateFlow<Boolean>,
         downloadProgress: StateFlow<Int>,
-        downloadFailed: SharedFlow<Unit>
+        downloadFailed: SharedFlow<Unit>,
+        installApk: SharedFlow<java.io.File>? = null
     ) {
         activity.lifecycleScope.launch {
             activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -80,6 +81,13 @@ object UpdateDownloadDialog {
                             R.string.about_download_failed,
                             Toast.LENGTH_SHORT
                         ).show()
+                    }
+                }
+                installApk?.let { flow ->
+                    launch {
+                        flow.collect { apkFile ->
+                            UpdateInstallCoordinator.install(activity, apkFile)
+                        }
                     }
                 }
             }

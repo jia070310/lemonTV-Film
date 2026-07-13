@@ -1,10 +1,12 @@
 package com.lemon.yingshi.tv.domain.service
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.lemon.yingshi.tv.domain.model.VersionInfo
@@ -15,6 +17,12 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+
+enum class ApkInstallResult {
+    Started,
+    NeedInstallPermission,
+    Failed
+}
 
 /**
  * 下载服务
@@ -40,7 +48,7 @@ class DownloadService(private val context: Context) {
         try {
             val downloadFile = File(
                 context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-                "LomenTV-v${versionInfo.versionName}.apk"
+                "Lomen-update-v${versionInfo.versionName}.apk"
             )
             
             val request = Request.Builder()
@@ -88,24 +96,63 @@ class DownloadService(private val context: Context) {
     }
     
     /**
-     * 安装APK
-     * @param apkFile APK文件
+     * 安装 APK。建议使用 Activity 作为 [launchContext]，以便在 Android 8+ 正常拉起系统安装界面。
      */
-    fun installApk(apkFile: File) {
-        val apkUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                apkFile
-            )
-        } else {
-            Uri.fromFile(apkFile)
+    fun installApk(apkFile: File, launchContext: Context = context): ApkInstallResult {
+        if (!apkFile.exists()) {
+            Log.e(TAG, "APK 不存在: ${apkFile.absolutePath}")
+            return ApkInstallResult.Failed
         }
-        
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(apkUri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(intent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !launchContext.packageManager.canRequestPackageInstalls()
+        ) {
+            openInstallPermissionSettings(launchContext)
+            return ApkInstallResult.NeedInstallPermission
+        }
+
+        return try {
+            val apkUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                FileProvider.getUriForFile(
+                    launchContext,
+                    "${launchContext.packageName}.fileprovider",
+                    apkFile
+                )
+            } else {
+                Uri.fromFile(apkFile)
+            }
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (launchContext !is Activity) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            launchContext.startActivity(intent)
+            ApkInstallResult.Started
+        } catch (e: Exception) {
+            Log.e(TAG, "启动安装失败", e)
+            ApkInstallResult.Failed
+        }
+    }
+
+    fun openInstallPermissionSettings(launchContext: Context = context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:${launchContext.packageName}")
+                if (launchContext !is Activity) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            launchContext.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "打开安装权限设置失败", e)
+        }
+    }
+
+    companion object {
+        private const val TAG = "DownloadService"
     }
 }

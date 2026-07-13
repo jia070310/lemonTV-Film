@@ -405,26 +405,60 @@ class DetailActivity : AppCompatActivity() {
     private fun showOfflineCachePicker() {
         lifecycleScope.launch {
             val state = viewModel.uiState.value as? DetailUiState.Success ?: return@launch
-            val showEpisodes = state.media.type != MediaType.MOVIE && currentEpisodes.isNotEmpty()
-            if (!showEpisodes) {
-                addCurrentEpisodeToOfflineCache()
+            val sources = state.playSources
+            if (sources.isEmpty()) {
+                Toast.makeText(this@DetailActivity, R.string.offline_download_no_url, Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
-            val downloads = offlineDownloadService.getAllDownloads().first()
-            val statusByEpisode = downloads
-                .filter { it.mediaId == state.media.id && it.episodeId != null }
-                .associate { it.episodeId!! to it.status }
+            val openEpisodePicker: (Int) -> Unit = { sourceIndex ->
+                lifecycleScope.launch episodePicker@{
+                    val episodes = viewModel.getEpisodesForCacheSource(sourceIndex)
+                    if (episodes.isEmpty()) {
+                        Toast.makeText(
+                            this@DetailActivity,
+                            R.string.offline_download_no_url,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return@episodePicker
+                    }
 
-            OfflineCachePickerDialog.show(
-                context = this@DetailActivity,
-                episodes = currentEpisodes,
-                episodeStatuses = statusByEpisode
-            ) { selectedEpisodes ->
-                lifecycleScope.launch {
-                    enqueueEpisodesToOfflineCache(selectedEpisodes, statusByEpisode)
+                    val downloads = offlineDownloadService.getAllDownloads().first()
+                    val statusByEpisode = downloads
+                        .filter { it.mediaId == state.media.id && it.episodeId != null }
+                        .associate { it.episodeId!! to it.status }
+
+                    val sourceName = sources.getOrNull(sourceIndex).orEmpty()
+                    val title = if (sourceName.isBlank()) {
+                        getString(R.string.offline_cache_picker_title)
+                    } else {
+                        getString(R.string.offline_cache_episode_picker_title_with_source, sourceName)
+                    }
+
+                    OfflineCachePickerDialog.show(
+                        context = this@DetailActivity,
+                        episodes = episodes,
+                        episodeStatuses = statusByEpisode,
+                        title = title
+                    ) { selectedEpisodes ->
+                        lifecycleScope.launch {
+                            enqueueEpisodesToOfflineCache(selectedEpisodes, statusByEpisode)
+                        }
+                    }
                 }
             }
+
+            if (sources.size == 1) {
+                openEpisodePicker(0)
+                return@launch
+            }
+
+            OfflineCacheSourcePickerDialog.show(
+                context = this@DetailActivity,
+                sources = sources,
+                selectedIndex = state.selectedPlaySourceIndex,
+                onConfirm = openEpisodePicker
+            )
         }
     }
 
@@ -438,7 +472,7 @@ class DetailActivity : AppCompatActivity() {
             if (existingStatus != null && existingStatus != OfflineDownloadStatus.FAILED) {
                 continue
             }
-            val info = viewModel.getEpisodePlaybackInfo(episode.id) ?: continue
+            val info = viewModel.buildEpisodePlaybackInfo(episode) ?: continue
             if (info.videoUrl.isBlank()) continue
             offlineDownloadService.enqueueDownload(
                 mediaId = info.mediaId,

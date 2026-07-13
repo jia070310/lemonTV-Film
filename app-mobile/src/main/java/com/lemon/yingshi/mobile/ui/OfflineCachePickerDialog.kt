@@ -34,9 +34,11 @@ object OfflineCachePickerDialog {
         context: Context,
         episodes: List<EpisodeItem>,
         episodeStatuses: Map<String, String?>,
+        title: String? = null,
         onConfirm: (List<EpisodeItem>) -> Unit
     ): Dialog {
         val binding = DialogOfflineCachePickerBinding.inflate(LayoutInflater.from(context))
+        binding.titleText.text = title ?: context.getString(R.string.offline_cache_picker_title)
         val states = episodes.sortedBy { it.episodeNumber }.map { episode ->
             EpisodeCacheState(episode, episodeStatuses[episode.id])
         }
