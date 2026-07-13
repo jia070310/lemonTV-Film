@@ -10,7 +10,7 @@
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
 - 成品APP服务器地址为空，需要用户自行部署MACCMS服务器，可以利用NAS部署网站，然后填入局域网地址测试通过就可以看了。也可以网上查找MACCMS服务器部署的网站，前提条件是这个服务器开启了API，要不然是提取不到数据的。
-- 这里推荐一个网址 https://xsd.sdzyapi.com
+- 这里推荐一个网址 http://cj.lziapi.com
 - 本应用**不内置影视服务器**，需自行部署 MacCMS 或接入已开启 API 的站点（部署与开启方法见下文 [MacCMS 部署与 API 配置](#maccms-部署与-api-配置)）
 - 也可使用他人已部署好的 MacCMS 站点，**前提是已开启视频 API**，否则无法拉取数据
 
