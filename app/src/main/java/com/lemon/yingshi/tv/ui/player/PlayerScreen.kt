@@ -1317,12 +1317,12 @@ private fun PlayerControls(
             playerState.currentPosition.toFloat() / playerState.duration.toFloat()
         } else 0f
         val bufferedProgress = if (playerState.duration > 0) {
-            val prefetchEstimateMs = (playerState.prefetchProgress * playerState.duration).toLong()
-            val bufferedMs = maxOf(playerState.bufferedPosition, prefetchEstimateMs)
+            val bufferedMs = maxOf(
+                playerState.bufferedPosition,
+                playerState.prefetchedEndPositionMs
+            )
             bufferedMs.toFloat() / playerState.duration.toFloat()
-        } else {
-            playerState.prefetchProgress
-        }
+        } else 0f
         val progressInteractionSource = remember { MutableInteractionSource() }
         val isProgressFocused = progressInteractionSource.collectIsFocusedAsState().value
         val bubbleHighlighted = isProgressFocused || forceProgressBubbleHighlight

@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Named
@@ -36,10 +37,12 @@ import kotlin.math.min
 
 data class HlsPrefetchState(
     val active: Boolean = false,
-    /** 窗口内已缓存分片数 / 窗口内总分片数 */
+    /** 窗口内已缓存分片数 / 窗口内总分片数（仅用于文案，不可直接映射整片进度） */
     val progress: Float = 0f,
     val completedSegments: Int = 0,
-    val totalSegments: Int = 0
+    val totalSegments: Int = 0,
+    /** 当前预缓存窗口内已覆盖到的媒体时间点（毫秒） */
+    val prefetchedEndPositionMs: Long = 0L
 )
 
 /**
@@ -54,6 +57,7 @@ class HlsPrefetchService @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefetchJob: Job? = null
     private val playheadMs = AtomicLong(0L)
+    private val prefetchedEndPositionMs = AtomicLong(0L)
     private val replenishMutex = Mutex()
     private val prefetchedKeys = ConcurrentHashMap.newKeySet<String>()
 
@@ -95,6 +99,7 @@ class HlsPrefetchService @Inject constructor(
         prefetchedKeys.clear()
         lastReplenishMs = 0L
         lastReplenishPlayheadMs = 0L
+        prefetchedEndPositionMs.set(0L)
         _state.value = HlsPrefetchState()
     }
 
@@ -158,7 +163,17 @@ class HlsPrefetchService @Inject constructor(
             val semaphore = Semaphore(threadCount)
             val cache = playerDataSourceFactory.getCache()
             val dataSourceFactory = playerDataSourceFactory.createCacheWriterDataSourceFactory(requestHeaders)
-            var completedInWindow = 0
+            val completedInWindow = AtomicInteger(0)
+            var cachedEndMs = currentPlayhead
+            windowSegments.forEach { (_, segment) ->
+                val dataSpec = DataSpec.Builder().setUri(segment.url).build()
+                val cacheKey = dataSpec.key ?: segment.url
+                val cachedLength = cache.getCachedLength(cacheKey, 0, C.LENGTH_UNSET.toLong())
+                if (cachedLength > 0 || prefetchedKeys.contains(cacheKey)) {
+                    cachedEndMs = maxOf(cachedEndMs, segmentEndMs(segment))
+                }
+            }
+            prefetchedEndPositionMs.set(cachedEndMs)
 
             coroutineScope {
                 windowSegments.map { (index, segment) ->
@@ -169,20 +184,22 @@ class HlsPrefetchService @Inject constructor(
                             val cacheKey = dataSpec.key ?: segment.url
                             val cachedLength = cache.getCachedLength(cacheKey, 0, C.LENGTH_UNSET.toLong())
                             if (cachedLength > 0 || prefetchedKeys.contains(cacheKey)) {
-                                completedInWindow++
-                                updateWindowProgress(completedInWindow, windowSegments.size)
+                                noteSegmentCached(segment)
+                                val completed = completedInWindow.incrementAndGet()
+                                updateWindowProgress(completed, windowSegments.size)
                                 return@withPermit
                             }
                             runCatching {
                                 prefetchSegment(dataSourceFactory, dataSpec)
                                 prefetchedKeys.add(cacheKey)
+                                noteSegmentCached(segment)
                             }.onFailure { error ->
                                 if (error !is CancellationException) {
                                     Log.w(TAG, "Prefetch segment failed [$index]: ${error.message}")
                                 }
                             }
-                            completedInWindow++
-                            updateWindowProgress(completedInWindow, windowSegments.size)
+                            val completed = completedInWindow.incrementAndGet()
+                            updateWindowProgress(completed, windowSegments.size)
                         }
                     }
                 }.awaitAll()
@@ -201,12 +218,22 @@ class HlsPrefetchService @Inject constructor(
         CacheWriter(dataSource, dataSpec, buffer, null).cache()
     }
 
+    private fun segmentEndMs(segment: HlsSegment): Long =
+        ((segment.startTimeSec + segment.durationSec) * 1000).toLong()
+
+    private fun noteSegmentCached(segment: HlsSegment) {
+        prefetchedEndPositionMs.updateAndGet { current ->
+            maxOf(current, segmentEndMs(segment))
+        }
+    }
+
     private fun updateWindowProgress(completed: Int, total: Int) {
         _state.value = HlsPrefetchState(
             active = true,
             progress = completed.toFloat() / total.coerceAtLeast(1),
             completedSegments = completed,
-            totalSegments = total
+            totalSegments = total,
+            prefetchedEndPositionMs = prefetchedEndPositionMs.get()
         )
     }
 

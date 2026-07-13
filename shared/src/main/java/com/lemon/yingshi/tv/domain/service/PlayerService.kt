@@ -578,7 +578,8 @@ class PlayerService @Inject constructor(
                 prefetchProgress = prefetch.progress,
                 prefetchActive = prefetch.active,
                 prefetchCompletedSegments = prefetch.completedSegments,
-                prefetchTotalSegments = prefetch.totalSegments
+                prefetchTotalSegments = prefetch.totalSegments,
+                prefetchedEndPositionMs = prefetch.prefetchedEndPositionMs
             )
         }
     }
@@ -589,7 +590,8 @@ class PlayerService @Inject constructor(
             prefetchProgress = prefetch.progress,
             prefetchActive = prefetch.active,
             prefetchCompletedSegments = prefetch.completedSegments,
-            prefetchTotalSegments = prefetch.totalSegments
+            prefetchTotalSegments = prefetch.totalSegments,
+            prefetchedEndPositionMs = prefetch.prefetchedEndPositionMs
         )
     }
 
@@ -861,6 +863,8 @@ data class PlayerState(
     val prefetchActive: Boolean = false,
     val prefetchCompletedSegments: Int = 0,
     val prefetchTotalSegments: Int = 0,
+    /** 预缓存窗口已覆盖到的媒体时间点（毫秒），用于进度条缓冲显示 */
+    val prefetchedEndPositionMs: Long = 0L,
     val error: String? = null
 ) {
     enum class Type {

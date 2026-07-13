@@ -97,6 +97,7 @@ class PlayerActivity : AppCompatActivity() {
         bindControls()
         setupSeekGestures()
         setupBackNavigation()
+        binding.progressBubble.text = "00:00 / 00:00"
 
         if (mediaId != null) {
             viewModel.setMediaInfo(mediaId, sessionEpisodeId)
@@ -422,16 +423,27 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun updateProgressUi(state: PlayerState, positionOverride: Long? = gesturePreviewPosition) {
         val duration = state.duration
-        if (duration <= 0) return
-
         val currentPosition = positionOverride ?: state.currentPosition
-        val progress = (currentPosition.toFloat() / duration).coerceIn(0f, 1f)
-        val prefetchMs = (state.prefetchProgress * duration).toLong()
-        val bufferedMs = maxOf(state.bufferedPosition, prefetchMs)
-        val buffered = (bufferedMs.toFloat() / duration).coerceIn(0f, 1f)
 
         binding.progressBubble.text =
-            "${PlayerTimeFormatter.format(currentPosition)} / ${PlayerTimeFormatter.format(duration)}"
+            "${PlayerTimeFormatter.format(currentPosition)} / ${PlayerTimeFormatter.format(duration.coerceAtLeast(0))}"
+
+        if (duration <= 0) {
+            val trackWidth = binding.progressTrackContainer.width
+            if (trackWidth > 0) {
+                binding.progressPlayed.layoutParams = binding.progressPlayed.layoutParams.apply { width = 0 }
+                binding.progressBuffered.layoutParams = binding.progressBuffered.layoutParams.apply { width = 0 }
+                binding.progressBubble.translationX = 0f
+            }
+            if (!userSeeking) {
+                binding.progressBar.progress = 0
+            }
+            return
+        }
+
+        val progress = (currentPosition.toFloat() / duration).coerceIn(0f, 1f)
+        val bufferedMs = maxOf(state.bufferedPosition, state.prefetchedEndPositionMs)
+        val buffered = (bufferedMs.toFloat() / duration).coerceIn(0f, 1f)
 
         if (state.prefetchActive && state.prefetchTotalSegments > 0) {
             binding.prefetchText.isVisible = true

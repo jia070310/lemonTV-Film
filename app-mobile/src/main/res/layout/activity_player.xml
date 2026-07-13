@@ -129,8 +129,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_player_time_bubble"
+                    android:minWidth="72dp"
                     android:paddingHorizontal="8dp"
                     android:paddingVertical="2dp"
+                    android:text="00:00 / 00:00"
                     android:textColor="@android:color/black"
                     android:textSize="9sp"
                     android:textStyle="bold" />

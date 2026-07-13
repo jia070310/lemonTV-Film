@@ -312,33 +312,31 @@ private fun HeroSection(
     onPlayClick: () -> Unit
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(500.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
-        VodPosterImage(
-            posterUrl = media.backdropUrl ?: media.posterUrl,
-            contentDescription = media.title,
-            modifier = Modifier.fillMaxSize(),
-            crossfade = true
-        )
+        Box(modifier = Modifier.matchParentSize()) {
+            VodPosterImage(
+                posterUrl = media.backdropUrl ?: media.posterUrl,
+                contentDescription = media.title,
+                modifier = Modifier.fillMaxSize(),
+                crossfade = true
+            )
 
-        // Gradient Overlay
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            BackgroundDark.copy(alpha = 0.95f),
-                            BackgroundDark.copy(alpha = 0.4f),
-                            BackgroundDark.copy(alpha = 0.8f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                BackgroundDark.copy(alpha = 0.95f),
+                                BackgroundDark.copy(alpha = 0.4f),
+                                BackgroundDark.copy(alpha = 0.8f)
+                            )
                         )
                     )
-                )
-        )
-        
-        // Back Button - 直接叠加在图片上层
+            )
+        }
+
         IconButton(
             onClick = onNavigateBack,
             modifier = Modifier
@@ -358,17 +356,25 @@ private fun HeroSection(
             )
         }
 
-        // Content — 顶部对齐，避免内容较少时上方留白过多
-        Box(
+        var isDetailsExpanded by remember(media.id) { mutableStateOf(false) }
+        val overviewText = remember(media.overview) {
+            media.overview
+                ?.replace(Regex("<[^>]+>"), "")
+                ?.replace("&nbsp;", " ")
+                ?.trim()
+                .orEmpty()
+                .ifBlank { "暂无简介" }
+        }
+        val hasLongOverview = overviewText.length > 72
+        val hasMetaInfo = !media.director.isNullOrBlank() || !media.actors.isNullOrBlank()
+        val canExpandDetails = hasLongOverview || hasMetaInfo
+
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 48.dp, end = 48.dp, top = 72.dp, bottom = 24.dp)
+                .align(Alignment.TopStart)
+                .width(600.dp)
+                .padding(start = 48.dp, end = 48.dp, top = 72.dp, bottom = 16.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .width(600.dp)
-            ) {
                 // Title
                 Text(
                     text = media.title,
@@ -442,25 +448,46 @@ private fun HeroSection(
                     }
                 }
 
-                // Overview
                 Text(
-                    text = media.overview ?: "暂无简介",
+                    text = overviewText,
                     style = MaterialTheme.typography.bodyLarge,
                     color = TextSecondary,
-                    maxLines = 2,
+                    maxLines = if (isDetailsExpanded) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 10.dp)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Director / Actors / Release Date
                 MediaMetaInfoSection(
                     media = media,
-                    showReleaseDate = media.year.isNullOrBlank()
+                    showReleaseDate = media.year.isNullOrBlank(),
+                    expanded = isDetailsExpanded
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                if (canExpandDetails) {
+                    Button(
+                        onClick = { isDetailsExpanded = !isDetailsExpanded },
+                        colors = ButtonDefaults.colors(
+                            containerColor = SurfaceDark.copy(alpha = 0.55f),
+                            contentColor = TextSecondary,
+                            focusedContainerColor = PrimaryYellow,
+                            focusedContentColor = Color.Black,
+                            pressedContainerColor = PrimaryYellow,
+                            pressedContentColor = Color.Black
+                        ),
+                        shape = ButtonDefaults.shape(shape = RoundedCornerShape(16.dp)),
+                        modifier = Modifier
+                            .padding(top = 4.dp, bottom = 12.dp)
+                            .heightIn(min = 36.dp)
+                    ) {
+                        Text(
+                            text = if (isDetailsExpanded) "收起详情" else "展开详情",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
-                // Action Buttons
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -534,7 +561,6 @@ private fun HeroSection(
                         )
                     }
                 }
-            }
         }
     }
 }
@@ -580,16 +606,17 @@ private fun PlayInfoLoadingSection(
 @Composable
 private fun MediaMetaInfoSection(
     media: MediaDetail,
-    showReleaseDate: Boolean = true
+    showReleaseDate: Boolean = true,
+    expanded: Boolean = false
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         media.director?.let { director ->
-            MetaInfoRow(label = "导演", value = director, maxLines = 1)
+            MetaInfoRow(label = "导演", value = director, maxLines = if (expanded) 2 else 1)
         }
         media.actors?.let { actors ->
-            MetaInfoRow(label = "演员", value = actors, maxLines = 1)
+            MetaInfoRow(label = "演员", value = actors, maxLines = if (expanded) 3 else 1)
         }
         if (showReleaseDate) {
             media.releaseDate?.let { date ->
