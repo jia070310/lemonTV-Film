@@ -1,7 +1,8 @@
-﻿package com.lemon.yingshi.tv.ui.viewmodel
+package com.lemon.yingshi.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lemon.yingshi.tv.domain.model.AppPlatform
 import com.lemon.yingshi.tv.domain.model.VersionInfo
 import com.lemon.yingshi.tv.domain.service.VersionCheckService
 import kotlinx.coroutines.delay
@@ -13,7 +14,7 @@ import kotlinx.coroutines.launch
  * 版本更新ViewModel
  */
 class VersionUpdateViewModel : ViewModel() {
-    private val versionCheckService = VersionCheckService()
+    private val versionCheckService = VersionCheckService(AppPlatform.TV)
     
     private val _versionInfo = MutableStateFlow<VersionInfo?>(null)
     val versionInfo: StateFlow<VersionInfo?> = _versionInfo

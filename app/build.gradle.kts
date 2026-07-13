@@ -2,9 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
-    id("com.google.devtools.ksp")
     kotlin("kapt")
-    kotlin("plugin.serialization") version "1.9.21"
 }
 
 android {
@@ -15,10 +13,9 @@ android {
         applicationId = "com.lemon.yingshi.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10005
-        versionName = "1.0.5"
+        versionCode = 10006
+        versionName = "1.0.6"
 
-        // TV-specific configurations
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -32,6 +29,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 与 release 使用同一签名，debug / 发行版可互相覆盖安装
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -41,6 +42,16 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            if (buildType.name == "release") {
+                output.outputFileName = "LomenTV-release-v${defaultConfig.versionName}.apk"
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -61,21 +72,22 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    
+
     lint {
         disable += listOf("UnsafeOptInUsageError")
     }
 }
 
 dependencies {
-    // AndroidX Core
+    implementation(project(":core"))
+    implementation(project(":shared"))
+
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    
-    // Core library desugaring for Java 8+ APIs on older Android versions
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     // TV-specific libraries
     implementation("androidx.leanback:leanback:1.0.0")
@@ -99,57 +111,22 @@ dependencies {
     kapt("com.google.dagger:hilt-compiler:2.48")
     implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
 
-    // Room Database
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
-
-    // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-
-    // Network
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-
     // Image Loading
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-gif:2.5.0")
 
-    // Media3 / ExoPlayer
+    // Media3 (PlayerView + ExoPlayer types in player UI)
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
-    implementation("androidx.media3:media3-session:1.2.1")
-    implementation("androidx.media3:media3-datasource:1.2.1")
-    implementation("androidx.media3:media3-datasource-okhttp:1.2.1")
-    implementation("androidx.media3:media3-database:1.2.1")
-    
-    // Jellyfin FFmpeg decoder for MP2/AC3/EAC3/DTS audio support
-    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.2.1+1")
-
-    // JSON Parsing
-    implementation("com.google.code.gson:gson:2.10.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Paging
     implementation("androidx.paging:paging-runtime-ktx:3.2.1")
     implementation("androidx.paging:paging-compose:3.2.1")
 
-    // Pinyin
-    implementation("com.belerweb:pinyin4j:2.5.1")
-
     // QR Code
     implementation("com.google.zxing:core:3.5.3")
     implementation("io.github.alexzhirkevich:qrose:1.0.0-beta02")
-
-    // HTTP Server
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

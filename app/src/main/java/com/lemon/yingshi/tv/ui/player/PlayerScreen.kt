@@ -176,6 +176,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val playerState by viewModel.playerState.collectAsState()
+    val isLoadingMedia by viewModel.isLoadingMedia.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
     val episodeMessage by viewModel.episodeNavigationMessage.collectAsState()
     var showControls by remember { mutableStateOf(true) }
 
@@ -222,10 +224,11 @@ fun PlayerScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     
-    LaunchedEffect(playerState.error) {
-        if (playerState.error != null) {
-            android.util.Log.e("PlayerScreen", "Player error: ${playerState.error}")
-            errorMessage = playerState.error!!
+    LaunchedEffect(playerState.error, loadError) {
+        val message = loadError ?: playerState.error
+        if (message != null) {
+            android.util.Log.e("PlayerScreen", "Player error: $message")
+            errorMessage = message
             showErrorDialog = true
         }
     }
@@ -783,14 +786,14 @@ fun PlayerScreen(
             }
         }
 
-        // 加载指示器
-        if (playerState.type == PlayerState.Type.BUFFERING) {
+        // 加载指示器（解析分享页 / 缓冲）
+        if (isLoadingMedia || playerState.type == PlayerState.Type.BUFFERING) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "加载中...",
+                    text = if (isLoadingMedia) "正在解析播放地址..." else "加载中...",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
@@ -937,12 +940,10 @@ fun PlayerScreen(
                 errorMessage = errorMessage,
                 onDismiss = {
                     showErrorDialog = false
-                    // 清除错误状态
                     viewModel.clearError()
                 },
                 onRetry = {
                     showErrorDialog = false
-                    // 重新初始化播放器并重试
                     viewModel.clearError()
                     viewModel.initializePlayer()
                     viewModel.prepareMedia(videoUrl, title, episodeTitle, startPosition)

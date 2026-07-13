@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_dark"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        style="@style/Widget.Lomen.Toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/toolbar_height"
+        app:navigationIcon="@drawable/ic_back"
+        app:title="@string/settings_home"
+        app:titleTextColor="@color/text_primary" />
+
+    <include
+        android:id="@+id/menu_home_sort"
+        layout="@layout/item_profile_menu" />
+
+    <include
+        android:id="@+id/menu_clear_home_cache"
+        layout="@layout/item_profile_menu" />
+</LinearLayout>

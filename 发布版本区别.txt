@@ -1,0 +1,24 @@
+方案：按平台独立检测
+新增 AppPlatform（TV / MOBILE），VersionCheckService 扫描 Release 列表，只匹配本平台的 tag 和 APK：
+
+平台	Release 标签	APK 文件名
+TV
+不含 mobile（如 v1.0.5）
+含 tv 或 app-release.apk
+手机
+含 mobile（如 mobile-v1.0.0）
+含 mobile
+两端各自对比各自的 versionCode，互不影响。
+
+代码改动
+VersionCheckService(platform) — 按平台过滤 Release
+TV 端 → AppPlatform.TV
+手机端 → AppPlatform.MOBILE（首页横幅、关于页）
+发布手机版时
+在 GitHub 单独发手机 Release，例如：
+
+Tag： mobile-v1.0.1
+APK： LomenMobile-release-v1.0.1.apk（文件名需含 mobile）
+TV 仍按原方式发布 v1.0.6 + LomenTV-release-v1.0.6.apk。
+
+若 GitHub 上还没有任何 mobile-* Release，手机端不会提示更新（符合预期，不会误拉 TV 包）。

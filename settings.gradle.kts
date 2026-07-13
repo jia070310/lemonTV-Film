@@ -14,4 +14,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "LomenTV"
+include(":core")
+include(":shared")
 include(":app")
+include(":app-mobile")

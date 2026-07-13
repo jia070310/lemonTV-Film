@@ -1,4 +1,4 @@
-﻿package com.lemon.yingshi.tv.ui.screens.detail
+package com.lemon.yingshi.tv.ui.screens.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +67,7 @@ import com.lemon.yingshi.tv.ui.theme.SurfaceVariant
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
+import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -263,12 +264,11 @@ private fun DetailContent(
                         CoroutineScope(Dispatchers.Main).launch {
                             val playbackInfo = viewModel.getEpisodePlaybackInfo(episode.id)
                             if (playbackInfo != null) {
-                                val episodeTitleText = episode.title?.trim() ?: ""
-                                val displayEpisodeTitle = if (episodeTitleText == media.title || episodeTitleText.isEmpty()) {
-                                    "第${episode.episodeNumber}集"
-                                } else {
-                                    "第${episode.episodeNumber}集 $episodeTitleText"
-                                }
+                                val displayEpisodeTitle = EpisodeLabelFormatter.build(
+                                    episode.episodeNumber,
+                                    episode.title,
+                                    media.title
+                                )
                                 onPlayClick(
                                     playbackInfo.videoUrl,
                                     media.title,
@@ -1033,71 +1033,6 @@ private fun EpisodeNumberButton(
             color = if (highlighted) BackgroundDark else TextSecondary
         )
     }
-}
-
-// Data classes for UI
-data class MediaDetail(
-    val id: String,
-    val title: String,
-    val originalTitle: String?,
-    val overview: String?,
-    val posterUrl: String?,
-    val backdropUrl: String?,
-    val rating: Float?,
-    val year: String?,
-    val genres: List<String>,
-    val type: MediaType,
-    val seasonCount: Int = 0,
-    val totalEpisodes: Int? = null,
-    val path: String? = null,
-    val director: String? = null,
-    val actors: String? = null,
-    val releaseDate: String? = null
-)
-
-/** 同集不同清晰度文件（如 4K / 1080 两套目录），用于详情合并与播放器切换 */
-data class EpisodeQualityVariant(
-    val mediaId: String,
-    val label: String,
-    val path: String
-)
-
-data class EpisodeItem(
-    val id: String,
-    val episodeNumber: Int,
-    val seasonNumber: Int = 1,  // 新增季数字段
-    val title: String?,
-    val stillUrl: String?,
-    val progress: Long = 0,
-    val duration: Long = 0,
-    val isWatched: Boolean = false,
-    val path: String? = null,
-    /** 多清晰度时含全部版本（已按清晰度从高到低排序）；单版本可为空 */
-    val qualityVariants: List<EpisodeQualityVariant> = emptyList()
-)
-
-/**
- * 演职人员数据类
- */
-data class CastItem(
-    val id: Int,
-    val name: String,
-    val role: String?,  // 导演/角色名称
-    val profileUrl: String?
-)
-
-// UI State
-sealed class DetailUiState {
-    object Loading : DetailUiState()
-    data class Success(
-        val media: MediaDetail,
-        val episodes: List<EpisodeItem>,
-        val cast: List<CastItem> = emptyList(),
-        val playSources: List<String> = emptyList(),
-        val selectedPlaySourceIndex: Int = 0,
-        val isLoadingPlayInfo: Boolean = false
-    ) : DetailUiState()
-    data class Error(val message: String) : DetailUiState()
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

@@ -1,4 +1,4 @@
-﻿@file:OptIn(ExperimentalComposeUiApi::class)
+@file:OptIn(ExperimentalComposeUiApi::class)
 
 package com.lemon.yingshi.tv.ui.screens.filter
 
@@ -465,8 +465,9 @@ private fun FilterScrollContent(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val errorMessage = uiState.error
                             Text(
-                                text = uiState.error,
+                                text = errorMessage.orEmpty(),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TextMuted
                             )
@@ -993,7 +994,8 @@ private fun FilterVodCard(
                 iconSize = 44.dp,
                 crossfade = true,
                 overlay = {
-                    if (!vod.vodRemarks.isNullOrBlank()) {
+                    val remarks = vod.vodRemarks
+                    if (!remarks.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
                                 .padding(8.dp)
@@ -1003,7 +1005,7 @@ private fun FilterVodCard(
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = vod.vodRemarks,
+                                text = remarks,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = BackgroundDark,
                                 maxLines = 1,
@@ -1030,7 +1032,8 @@ private fun FilterVodCard(
                         }
                     }
 
-                    if (!vod.vodYear.isNullOrBlank()) {
+                    val vodYear = vod.vodYear
+                    if (!vodYear.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
                                 .padding(8.dp)
@@ -1040,7 +1043,7 @@ private fun FilterVodCard(
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = vod.vodYear,
+                                text = vodYear,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextPrimary
                             )
@@ -1072,11 +1075,13 @@ private fun FilterVodCard(
 
 private fun buildCardMeta(vod: MacCmsVodItem): String {
     val parts = mutableListOf<String>()
-    if (!vod.vodYear.isNullOrBlank()) parts.add(vod.vodYear)
+    val year = vod.vodYear
+    if (!year.isNullOrBlank()) parts.add(year)
     val genre = vod.vodClass?.split(Regex("[,，|]"))?.firstOrNull()?.trim()
         ?: vod.typeName?.takeIf { it.isNotBlank() }
     if (!genre.isNullOrBlank()) parts.add(genre)
-    if (!vod.vodArea.isNullOrBlank()) parts.add(vod.vodArea)
+    val area = vod.vodArea
+    if (!area.isNullOrBlank()) parts.add(area)
     return parts.joinToString(" · ").ifBlank { "—" }
 }
 

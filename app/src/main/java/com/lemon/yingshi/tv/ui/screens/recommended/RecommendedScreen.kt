@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -57,6 +58,10 @@ fun RecommendedScreen(
     val uiState by viewModel.uiState.collectAsState()
     val focusRequester = remember { FocusRequester() }
 
+    LaunchedEffect(Unit) {
+        viewModel.loadPage(1)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -95,7 +100,7 @@ fun RecommendedScreen(
                 }
             }
 
-            RecommendedUiState.Empty -> {
+            is RecommendedUiState.Empty -> {
                 TvLazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 100.dp)
@@ -116,7 +121,7 @@ fun RecommendedScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "暂无推荐内容",
+                                text = state.message,
                                 style = MaterialTheme.typography.titleLarge,
                                 color = TextMuted
                             )

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">20dp</dimen>
+    <dimen name="poster_radius">12dp</dimen>
+    <dimen name="tag_radius">4dp</dimen>
+    <dimen name="button_radius">24dp</dimen>
+    <dimen name="bottom_nav_height">52dp</dimen>
+    <dimen name="header_padding_top">6dp</dimen>
+    <dimen name="header_search_height">34dp</dimen>
+    <dimen name="header_avatar_size">32dp</dimen>
+    <dimen name="profile_header_padding_top">12dp</dimen>
+    <dimen name="profile_avatar_size">56dp</dimen>
+    <dimen name="carousel_item_width">140dp</dimen>
+    <dimen name="card_spacing">12dp</dimen>
+    <dimen name="section_spacing">24dp</dimen>
+    <dimen name="toolbar_height">44dp</dimen>
+    <dimen name="toolbar_title_size">16sp</dimen>
+</resources>

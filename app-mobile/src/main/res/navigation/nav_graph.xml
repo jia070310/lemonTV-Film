@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/homeFragment">
+
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.lemon.yingshi.mobile.ui.home.HomeFragment"
+        android:label="@string/nav_home" />
+
+    <fragment
+        android:id="@+id/recommendationFragment"
+        android:name="com.lemon.yingshi.mobile.ui.recommendation.RecommendationFragment"
+        android:label="@string/nav_recommend" />
+
+    <fragment
+        android:id="@+id/profileFragment"
+        android:name="com.lemon.yingshi.mobile.ui.profile.ProfileFragment"
+        android:label="@string/nav_profile" />
+
+</navigation>
