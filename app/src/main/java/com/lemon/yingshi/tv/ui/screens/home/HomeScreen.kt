@@ -209,6 +209,14 @@ fun HomeScreen(
     val macCmsSections = macCmsHomeState.sections
     val recommendedItems = macCmsHomeState.recommendedItems
 
+    val unloadedSectionKeys = remember(macCmsSections) {
+        macCmsSections.filter { !it.isLoaded }.map { it.sectionKey }
+    }
+    LaunchedEffect(macCmsHomeState.isConfigured, unloadedSectionKeys) {
+        if (!macCmsHomeState.isConfigured || unloadedSectionKeys.isEmpty()) return@LaunchedEffect
+        macCmsHomeViewModel.ensureSectionsLoaded(unloadedSectionKeys)
+    }
+
     val rowSpecs = remember(recentWatchHistory, recommendedItems, macCmsSections) {
         buildList {
             if (recentWatchHistory.isNotEmpty()) {
@@ -1189,7 +1197,7 @@ private fun BottomNavigationBar(
             items.forEachIndexed { index, item ->
                 val isSelected = index == selectedTab
                 val isSettingsTab = index == 2
-                
+
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -1222,7 +1230,7 @@ private fun BottomNavigationBar(
                                 modifier = Modifier.size(28.dp)
                             )
                         }
-                        
+
                         // 红点提示
                         if (isSettingsTab && hasUpdate) {
                             Box(

@@ -67,6 +67,7 @@ import com.lemon.yingshi.tv.ui.theme.SurfaceVariant
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
+import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1001,12 +1002,12 @@ private fun EpisodeNumberButton(
     Button(
         onClick = onClick,
         colors = ButtonDefaults.colors(
-            containerColor = if (isSelected) PrimaryYellow else SurfaceDark.copy(alpha = 0.6f),
-            contentColor = if (isSelected) BackgroundDark else TextSecondary,
-            focusedContainerColor = PrimaryYellow,
-            focusedContentColor = BackgroundDark,
-            pressedContainerColor = PrimaryYellow,
-            pressedContentColor = BackgroundDark
+            containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else SurfaceDark.copy(alpha = 0.6f),
+            contentColor = TvSelectableTokens.selectedContentColor,
+            focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+            focusedContentColor = TvSelectableTokens.focusedContentColor,
+            pressedContainerColor = TvSelectableTokens.focusedContainerColor,
+            pressedContentColor = TvSelectableTokens.focusedContentColor
         ),
         shape = ButtonDefaults.shape(shape = RoundedCornerShape(8.dp)),
         modifier = modifier
@@ -1025,7 +1026,7 @@ private fun EpisodeNumberButton(
                     androidx.compose.ui.text.font.FontWeight.Normal
                 }
             ),
-            color = if (highlighted) BackgroundDark else TextSecondary
+            color = TvSelectableTokens.contentColor(isFocused)
         )
     }
 }

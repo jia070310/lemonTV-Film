@@ -103,6 +103,7 @@ import com.lemon.yingshi.tv.ui.theme.SurfaceDark
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
+import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import com.lemon.yingshi.tv.ui.viewmodel.MacCmsConfigViewModel
 import com.lemon.yingshi.tv.ui.viewmodel.VersionUpdateViewModel
 import com.lemon.yingshi.tv.domain.model.VersionInfo
@@ -408,10 +409,10 @@ private fun SettingsSidebar(
             Button(
                 onClick = { onCategorySelected(index) },
                 colors = ButtonDefaults.colors(
-                    containerColor = if (isSelected) Color.Transparent else Color.Transparent,
-                    contentColor = if (isSelected) PrimaryYellow else TextPrimary,
-                    focusedContainerColor = PrimaryYellow,
-                    focusedContentColor = BackgroundDark
+                    containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else Color.Transparent,
+                    contentColor = TvSelectableTokens.selectedContentColor,
+                    focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+                    focusedContentColor = TvSelectableTokens.focusedContentColor
                 ),
                 shape = ButtonDefaults.shape(shape = RoundedCornerShape(16.dp.scale(s))),
                 modifier = Modifier
@@ -704,16 +705,16 @@ private fun ScanConcurrencySelectDialog(
                         pressedScale = 1.0f
                     ),
                     colors = ButtonDefaults.colors(
-                        containerColor = if (isSelected) PrimaryYellow.copy(alpha = 0.25f) else SurfaceDark,
-                        focusedContainerColor = PrimaryYellow,
-                        contentColor = TextPrimary,
-                        focusedContentColor = Color.Black
+                        containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else SurfaceDark,
+                        focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+                        contentColor = TvSelectableTokens.selectedContentColor,
+                        focusedContentColor = TvSelectableTokens.focusedContentColor
                     )
                 ) {
                     Text(
                         text = "${getOptionLabel(concurrency)}（${concurrency}线程）",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = if (isFocused) Color.Black else if (isSelected) PrimaryYellow else TextPrimary
+                        color = TvSelectableTokens.contentColor(isFocused)
                     )
                 }
             }
@@ -876,16 +877,16 @@ private fun SeekDurationSelectDialog(
                         pressedScale = 1.0f
                     ),
                     colors = ButtonDefaults.colors(
-                        containerColor = if (isSelected) PrimaryYellow.copy(alpha = 0.25f) else SurfaceDark,
-                        focusedContainerColor = PrimaryYellow,
-                        contentColor = TextPrimary,
-                        focusedContentColor = Color.Black
+                        containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else SurfaceDark,
+                        focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+                        contentColor = TvSelectableTokens.selectedContentColor,
+                        focusedContentColor = TvSelectableTokens.focusedContentColor
                     )
                 ) {
                     Text(
                         text = "${seconds}s",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = if (isFocused) Color.Black else if (isSelected) PrimaryYellow else TextPrimary
+                        color = TvSelectableTokens.contentColor(isFocused)
                     )
                 }
             }
@@ -1239,12 +1240,12 @@ private fun AutoRefreshIntervalDropdownMenu(
                     },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     colors = ButtonDefaults.colors(
-                        containerColor = if (isSelected) PrimaryYellow.copy(alpha = 0.18f) else Color.Transparent,
-                        contentColor = Color.White,
-                        focusedContainerColor = PrimaryYellow,
-                        focusedContentColor = Color.Black,
-                        pressedContainerColor = PrimaryYellow,
-                        pressedContentColor = Color.Black
+                        containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else Color.Transparent,
+                        contentColor = TvSelectableTokens.selectedContentColor,
+                        focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+                        focusedContentColor = TvSelectableTokens.focusedContentColor,
+                        pressedContainerColor = TvSelectableTokens.focusedContainerColor,
+                        pressedContentColor = TvSelectableTokens.focusedContentColor
                     ),
                     shape = ButtonDefaults.shape(shape = AutoRefreshPillShape),
                     modifier = Modifier

@@ -100,6 +100,7 @@ import com.lemon.yingshi.tv.ui.theme.DialogUiTokens
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
 import com.lemon.yingshi.tv.ui.theme.SurfaceDark
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
+import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.max
@@ -1946,12 +1947,12 @@ private fun EpisodeListPageButton(
     Button(
         onClick = onClick,
         colors = ButtonDefaults.colors(
-            containerColor = if (isSelected) PrimaryYellow else SurfaceDark.copy(alpha = 0.6f),
-            contentColor = if (isSelected) BackgroundDark else TextPrimary,
-            focusedContainerColor = PrimaryYellow,
-            focusedContentColor = BackgroundDark,
-            pressedContainerColor = PrimaryYellow,
-            pressedContentColor = BackgroundDark
+            containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else SurfaceDark.copy(alpha = 0.6f),
+            contentColor = TvSelectableTokens.selectedContentColor,
+            focusedContainerColor = TvSelectableTokens.focusedContainerColor,
+            focusedContentColor = TvSelectableTokens.focusedContentColor,
+            pressedContainerColor = TvSelectableTokens.focusedContainerColor,
+            pressedContentColor = TvSelectableTokens.focusedContentColor
         ),
         shape = ButtonDefaults.shape(shape = RoundedCornerShape(8.dp)),
         modifier = modifier
@@ -1967,7 +1968,7 @@ private fun EpisodeListPageButton(
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal
             ),
-            color = if (highlighted) BackgroundDark else TextPrimary
+            color = TvSelectableTokens.contentColor(isFocused)
         )
     }
 }

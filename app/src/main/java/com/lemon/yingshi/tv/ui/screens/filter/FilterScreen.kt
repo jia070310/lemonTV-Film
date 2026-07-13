@@ -5,7 +5,6 @@ package com.lemon.yingshi.tv.ui.screens.filter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.PivotOffsets
 import androidx.tv.foundation.lazy.list.TvLazyColumn
+import androidx.tv.foundation.lazy.list.TvLazyListState
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
 import androidx.tv.foundation.lazy.list.rememberTvLazyListState
@@ -88,6 +88,7 @@ import com.lemon.yingshi.tv.ui.theme.SurfaceVariant
 import com.lemon.yingshi.tv.ui.theme.TextMuted
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
+import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,6 +102,25 @@ private fun FocusRequester.tryRequestFocus(): Boolean =
         requestFocus()
         true
     }.getOrDefault(false)
+
+/** 计算将卡片行完整滚入视口所需的最小滚动量（像素），无需滚动时返回 0 */
+private fun computeFilterCardRowRevealScroll(
+    listState: TvLazyListState,
+    cardIndex: Int
+): Int {
+    val rowListIndex = 2 + cardIndex / FILTER_COLUMNS
+    val layoutInfo = listState.layoutInfo
+    val visibleItem = layoutInfo.visibleItemsInfo.find { it.index == rowListIndex } ?: return 0
+    val viewportStart = layoutInfo.viewportStartOffset
+    val viewportEnd = layoutInfo.viewportEndOffset
+    val itemTop = visibleItem.offset
+    val itemBottom = visibleItem.offset + visibleItem.size
+    return when {
+        itemBottom > viewportEnd -> itemBottom - viewportEnd
+        itemTop < viewportStart -> itemTop - viewportStart
+        else -> 0
+    }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -275,15 +295,17 @@ private fun FilterSidebarItem(
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
     val focusManager = LocalFocusManager.current
+    var isFocused by remember { mutableStateOf(false) }
     Card(
         onClick = onClick,
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) PrimaryYellow.copy(alpha = 0.15f) else Color.Transparent,
-            focusedContainerColor = PrimaryYellow
+            containerColor = if (isSelected) TvSelectableTokens.selectedContainerColor else Color.Transparent,
+            focusedContainerColor = TvSelectableTokens.focusedContainerColor
         ),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
+            .onFocusChanged { isFocused = it.isFocused }
             .then(
                 if (onMoveRight != null) {
                     Modifier.onPreviewKeyEvent { event ->
@@ -338,7 +360,7 @@ private fun FilterSidebarItem(
                 } else {
                     MaterialTheme.typography.bodyMedium
                 },
-                color = TextPrimary,
+                color = TvSelectableTokens.contentColor(isFocused),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -368,6 +390,7 @@ private fun FilterScrollContent(
 ) {
     val listState = rememberTvLazyListState()
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var showScrollTopToast by remember { mutableStateOf(false) }
     val showScrollHint by remember {
         derivedStateOf {
@@ -386,6 +409,15 @@ private fun FilterScrollContent(
         enabled = { uiState.items.size > FILTER_COLUMNS },
         onScrollToTop = scrollToTop
     )
+    var pendingFocusCardIndex by remember { mutableStateOf<Int?>(null) }
+    var revealCardIndexOnDown by remember { mutableStateOf<Int?>(null) }
+    val loadedCardsFocusRequester = remember { FocusRequester() }
+    val handleLoadMore: () -> Unit = {
+        // 「加载更多」居中显示，新内容出现后聚焦该行中间列，避免跳到最左侧
+        val nextBatchStart = uiState.items.size
+        pendingFocusCardIndex = nextBatchStart + FILTER_COLUMNS / 2
+        onLoadMore()
+    }
 
     LaunchedEffect(showScrollTopToast) {
         if (showScrollTopToast) {
@@ -394,11 +426,20 @@ private fun FilterScrollContent(
         }
     }
 
-    LaunchedEffect(uiState.isLoadingMore) {
-        // 仅在用户触发「加载更多」时把焦点移到按钮，避免首屏加载完成后抢走默认焦点
-        if (uiState.isLoadingMore) {
-            loadMoreFocusRequester.tryRequestFocus()
-        }
+    LaunchedEffect(uiState.items.size, uiState.isLoadingMore, pendingFocusCardIndex) {
+        val targetIndex = pendingFocusCardIndex ?: return@LaunchedEffect
+        if (uiState.isLoadingMore) return@LaunchedEffect
+        if (targetIndex >= uiState.items.size) return@LaunchedEffect
+
+        // 等新卡片插入列表后先稳定布局，再聚焦；聚焦可能触发自动滚动，随后恢复原位
+        delay(80)
+        val anchorIndex = listState.firstVisibleItemIndex
+        val anchorOffset = listState.firstVisibleItemScrollOffset
+        loadedCardsFocusRequester.tryRequestFocus()
+        delay(16)
+        listState.scrollToItem(anchorIndex, anchorOffset)
+        revealCardIndexOnDown = targetIndex
+        pendingFocusCardIndex = null
     }
 
     Box(
@@ -474,12 +515,7 @@ private fun FilterScrollContent(
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
                                 onClick = onRetry,
-                                colors = ButtonDefaults.colors(
-                                    containerColor = SurfaceVariant,
-                                    focusedContainerColor = PrimaryYellow,
-                                    contentColor = TextPrimary,
-                                    focusedContentColor = BackgroundDark
-                                )
+                                colors = TvSelectableTokens.buttonColors(),
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -524,8 +560,38 @@ private fun FilterScrollContent(
                                     modifier = Modifier.weight(1f),
                                     cardModifier = Modifier
                                         .then(
-                                            if (index == 0) {
-                                                Modifier.focusRequester(firstCardFocusRequester)
+                                            when (index) {
+                                                0 -> Modifier.focusRequester(firstCardFocusRequester)
+                                                pendingFocusCardIndex -> Modifier.focusRequester(loadedCardsFocusRequester)
+                                                else -> Modifier
+                                            }
+                                        )
+                                        .then(
+                                            if (index == revealCardIndexOnDown) {
+                                                Modifier.onPreviewKeyEvent { event ->
+                                                    if (
+                                                        event.type == KeyEventType.KeyDown &&
+                                                        event.key == Key.DirectionDown
+                                                    ) {
+                                                        scope.launch {
+                                                            val revealDelta = computeFilterCardRowRevealScroll(
+                                                                listState,
+                                                                index
+                                                            )
+                                                            revealCardIndexOnDown = null
+                                                            if (revealDelta != 0) {
+                                                                listState.scroll {
+                                                                    scrollBy(revealDelta.toFloat())
+                                                                }
+                                                            } else {
+                                                                focusManager.moveFocus(FocusDirection.Down)
+                                                            }
+                                                        }
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
                                             } else {
                                                 Modifier
                                             }
@@ -559,46 +625,38 @@ private fun FilterScrollContent(
 
                 if (uiState.hasMoreResults) {
                     item(key = "load_more") {
-                        val loadMoreModifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp)
-                            .focusRequester(loadMoreFocusRequester)
-                            .focusProperties {
-                                down = FocusRequester.Cancel
-                            }
-                            .onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                                    firstChipFocusRequester.tryRequestFocus()
-                                        || sidebarFocusRequester.tryRequestFocus()
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-
                         Box(
-                            modifier = if (uiState.isLoadingMore) {
-                                loadMoreModifier.focusable()
-                            } else {
-                                loadMoreModifier
-                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (uiState.isLoadingMore) {
-                                CircularProgressIndicator(
-                                    color = PrimaryYellow,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            } else {
-                                Button(
-                                    onClick = onLoadMore,
-                                    colors = ButtonDefaults.colors(
-                                        containerColor = SurfaceVariant,
-                                        focusedContainerColor = PrimaryYellow,
-                                        contentColor = TextPrimary,
-                                        focusedContentColor = BackgroundDark
+                            Button(
+                                onClick = {
+                                    if (!uiState.isLoadingMore) handleLoadMore()
+                                },
+                                colors = TvSelectableTokens.buttonColors(),
+                                modifier = Modifier
+                                    .focusRequester(loadMoreFocusRequester)
+                                    .focusProperties {
+                                        down = FocusRequester.Cancel
+                                    }
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                            firstChipFocusRequester.tryRequestFocus()
+                                                || sidebarFocusRequester.tryRequestFocus()
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                            ) {
+                                if (uiState.isLoadingMore) {
+                                    CircularProgressIndicator(
+                                        color = PrimaryYellow,
+                                        modifier = Modifier.size(24.dp)
                                     )
-                                ) {
+                                } else {
                                     Text("加载更多")
                                 }
                             }
@@ -905,15 +963,14 @@ private fun FilterChipRow(
                 val displayText = displayTransform(option)
                 val isFirstChip = firstChipFocusRequester != null && option == options.first()
                 val chipRequester = firstChipFocusRequester
+                var isFocused by remember(option) { mutableStateOf(false) }
                 Card(
                     onClick = { onSelected(option) },
-                    colors = CardDefaults.colors(
-                        containerColor = if (isSelected) PrimaryYellow else SurfaceVariant,
-                        focusedContainerColor = PrimaryYellow
-                    ),
+                    colors = TvSelectableTokens.chipColors(isSelected),
                     scale = CardDefaults.scale(focusedScale = 1.05f),
                     modifier = Modifier
                         .height(36.dp)
+                        .onFocusChanged { isFocused = it.isFocused }
                         .then(
                             if (isFirstChip && chipRequester != null) {
                                 Modifier
@@ -947,7 +1004,7 @@ private fun FilterChipRow(
                         Text(
                             text = displayText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isSelected) BackgroundDark else TextPrimary
+                            color = TvSelectableTokens.contentColor(isFocused)
                         )
                     }
                 }
@@ -1109,24 +1166,14 @@ private fun FilterEmptyState(
             if (onNavigateBack != null) {
                 Button(
                     onClick = onNavigateBack,
-                    colors = ButtonDefaults.colors(
-                        containerColor = SurfaceVariant,
-                        focusedContainerColor = PrimaryYellow,
-                        contentColor = TextPrimary,
-                        focusedContentColor = BackgroundDark
-                    )
+                    colors = TvSelectableTokens.buttonColors(),
                 ) {
                     Text("返回")
                 }
             }
             Button(
                 onClick = onRetry,
-                colors = ButtonDefaults.colors(
-                    containerColor = SurfaceVariant,
-                    focusedContainerColor = PrimaryYellow,
-                    contentColor = TextPrimary,
-                    focusedContentColor = BackgroundDark
-                )
+                colors = TvSelectableTokens.buttonColors(),
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))

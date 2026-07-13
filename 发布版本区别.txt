@@ -19,6 +19,6 @@ TV 端 → AppPlatform.TV
 
 Tag： mobile-v1.0.2
 APK： LomenMobile-release-v1.0.2.apk（文件名需含 mobile）
-TV 仍按原方式发布 v1.0.7 + LomenTV-release-v1.0.7.apk。
+TV 仍按原方式发布 v1.0.8 + LomenTV-release-v1.0.8.apk。
 
 若 GitHub 上还没有任何 mobile-* Release，手机端不会提示更新（符合预期，不会误拉 TV 包）。
