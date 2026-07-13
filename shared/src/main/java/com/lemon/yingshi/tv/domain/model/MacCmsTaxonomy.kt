@@ -81,8 +81,15 @@ class MacCmsTaxonomy private constructor(
     fun allowedTypeIds(category: MacCmsNavCategory): Set<Int> =
         listQueryTypeIds(category).toSet()
 
-    fun allSecondaryTypeIds(): List<Int> =
-        topCategories.flatMap { nav -> nav.children.map { it.typeId } }.distinct().sorted()
+    fun allSecondaryTypeIds(): List<Int> {
+        val ordered = linkedSetOf<Int>()
+        topCategories.forEach { nav ->
+            nav.children.forEach { child ->
+                ordered.add(child.typeId)
+            }
+        }
+        return ordered.toList()
+    }
 
     fun secondaryLabel(typeId: Int): String =
         childByTypeId[typeId]?.label
@@ -207,19 +214,23 @@ class MacCmsTaxonomy private constructor(
         fun typeSectionKey(typeId: Int): String = "$TYPE_PREFIX$typeId"
 
         fun fromServerTypes(rows: List<MacCmsTypeTreeItem>): MacCmsTaxonomy {
-            val topCategories = rows
-                .filter { it.typePid == 0 && it.typeId > 0 }
-                .sortedWith(compareByDescending<MacCmsTypeTreeItem> { it.typeSort }
-                    .thenBy { it.typeId })
-                .map { row ->
+            val topCategories = rows.withIndex()
+                .filter { (_, row) -> row.typePid == 0 && row.typeId > 0 }
+                .sortedWith(
+                    compareBy<IndexedValue<MacCmsTypeTreeItem>> { it.value.typeSort }
+                        .thenBy { it.index }
+                )
+                .map { (_, row) ->
                     MacCmsNavCategory(
                         typeId = row.typeId,
                         label = row.typeName,
-                        children = (row.children ?: emptyList())
-                            .filter { it.typeId > 0 }
-                            .sortedWith(compareByDescending<MacCmsTypeTreeItem> { it.typeSort }
-                                .thenBy { it.typeId })
-                            .map { child ->
+                        children = (row.children ?: emptyList()).withIndex()
+                            .filter { (_, child) -> child.typeId > 0 }
+                            .sortedWith(
+                                compareBy<IndexedValue<MacCmsTypeTreeItem>> { it.value.typeSort }
+                                    .thenBy { it.index }
+                            )
+                            .map { (_, child) ->
                                 MacCmsTypeChild(typeId = child.typeId, label = child.typeName)
                             }
                     )
@@ -234,22 +245,28 @@ class MacCmsTaxonomy private constructor(
             val valid = items.filter { it.typeId > 0 && it.typeName.isNotBlank() }
             if (valid.isEmpty()) return MacCmsTaxonomy(emptyList())
 
+            val indexById = items.withIndex().associate { (index, item) -> item.typeId to index }
+            fun sortTypes(list: List<MacCmsTypeItem>): List<MacCmsTypeItem> =
+                list.sortedWith(
+                    compareBy<MacCmsTypeItem> { it.typeSort }
+                        .thenBy { indexById[it.typeId] ?: Int.MAX_VALUE }
+                )
+
             val byId = valid.associateBy { it.typeId }
-            val roots = valid
-                .filter { item -> valid.any { it.typePid == item.typeId } }
-                .distinctBy { it.typeId }
-                .ifEmpty {
-                    valid.filter { it.typePid == 0 || it.typePid !in byId }.distinctBy { it.typeId }
-                }
-                .sortedBy { it.typeId }
+            val roots = sortTypes(
+                valid
+                    .filter { item -> valid.any { it.typePid == item.typeId } }
+                    .distinctBy { it.typeId }
+                    .ifEmpty {
+                        valid.filter { it.typePid == 0 || it.typePid !in byId }.distinctBy { it.typeId }
+                    }
+            )
 
             val topCategories = roots.map { root ->
                 MacCmsNavCategory(
                     typeId = root.typeId,
                     label = root.typeName,
-                    children = valid
-                        .filter { it.typePid == root.typeId }
-                        .sortedBy { it.typeId }
+                    children = sortTypes(valid.filter { it.typePid == root.typeId })
                         .map { child -> MacCmsTypeChild(typeId = child.typeId, label = child.typeName) }
                 )
             }

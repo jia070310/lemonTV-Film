@@ -20,7 +20,9 @@ data class MacCmsTypeItem(
     @SerializedName("type_name")
     val typeName: String = "",
     @SerializedName("type_pid")
-    val typePid: Int = 0
+    val typePid: Int = 0,
+    @SerializedName("type_sort")
+    val typeSort: Int = 0
 )
 
 /** MacCMS /api.php/type/get_list/ 返回的分类树节点 */
