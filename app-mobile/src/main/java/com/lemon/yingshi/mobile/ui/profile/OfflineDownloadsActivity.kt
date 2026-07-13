@@ -68,11 +68,24 @@ class OfflineDownloadsActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.summary.collect { summary ->
+                    binding.totalSizeText.isVisible = summary.totalCount > 0
+                    if (summary.totalCount > 0) {
+                        binding.totalSizeText.text =
+                            OfflineDownloadUi.formatTotalSize(this@OfflineDownloadsActivity, summary)
+                    }
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.downloads.collect { items ->
                     adapter.submit(items)
                     binding.emptyContainer.isVisible = items.isEmpty()
                     binding.offlineRecycler.isVisible = items.isNotEmpty()
                     binding.batchActions.isVisible = items.isNotEmpty()
+                    binding.totalSizeText.isVisible = items.isNotEmpty()
                     binding.toolbar.title = getString(R.string.offline_downloads_title) +
                         if (items.isNotEmpty()) " (${items.size})" else ""
                     updateBatchButtons(items)
@@ -181,6 +194,7 @@ private class OfflineDownloadAdapter(
         private val title = itemView.findViewById<TextView>(R.id.title_text)
         private val episode = itemView.findViewById<TextView>(R.id.episode_text)
         private val status = itemView.findViewById<TextView>(R.id.status_text)
+        private val sizeText = itemView.findViewById<TextView>(R.id.size_text)
         private val progressBar = itemView.findViewById<ProgressBar>(R.id.progress_bar)
         private val toggleButton = itemView.findViewById<ImageButton>(R.id.toggle_button)
         private val deleteButton = itemView.findViewById<ImageButton>(R.id.delete_button)
@@ -194,6 +208,11 @@ private class OfflineDownloadAdapter(
             title.text = item.title
             episode.text = item.episodeTitle ?: itemView.context.getString(R.string.offline_movie_label)
             episode.isVisible = true
+            sizeText.text = itemView.context.getString(
+                R.string.offline_item_size,
+                OfflineDownloadUi.formatItemSize(item.storageSizeBytes)
+            )
+            sizeText.isVisible = item.storageSizeBytes > 0L
             poster.load(item.posterUrl) {
                 crossfade(true)
                 placeholder(R.drawable.bg_poster_card)

@@ -178,6 +178,24 @@ fun PlayerScreen(
     val focusManager = LocalFocusManager.current
     val playerState by viewModel.playerState.collectAsState()
     val isLoadingMedia by viewModel.isLoadingMedia.collectAsState()
+    var showBufferingOverlay by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isLoadingMedia, playerState.type, playerState.bufferedPosition, playerState.currentPosition) {
+        if (isLoadingMedia) {
+            showBufferingOverlay = true
+            return@LaunchedEffect
+        }
+        if (playerState.type != PlayerState.Type.BUFFERING) {
+            showBufferingOverlay = false
+            return@LaunchedEffect
+        }
+        if (playerState.bufferedPosition - playerState.currentPosition > 5_000L) {
+            showBufferingOverlay = false
+            return@LaunchedEffect
+        }
+        delay(800)
+        showBufferingOverlay = true
+    }
     val loadError by viewModel.loadError.collectAsState()
     val episodeMessage by viewModel.episodeNavigationMessage.collectAsState()
     var showControls by remember { mutableStateOf(true) }
@@ -787,8 +805,8 @@ fun PlayerScreen(
             }
         }
 
-        // 加载指示器（解析分享页 / 缓冲）
-        if (isLoadingMedia || playerState.type == PlayerState.Type.BUFFERING) {
+        // 加载指示器（解析分享页 / 缓冲，已缓冲 >5s 或短暂缓冲不显示全屏）
+        if (showBufferingOverlay) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center

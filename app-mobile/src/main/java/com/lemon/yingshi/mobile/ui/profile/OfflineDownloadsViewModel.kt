@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lemon.yingshi.tv.domain.service.OfflineDownloadItem
 import com.lemon.yingshi.tv.domain.service.OfflineDownloadService
+import com.lemon.yingshi.tv.domain.service.OfflineDownloadSummary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +18,13 @@ class OfflineDownloadsViewModel @Inject constructor(
 
     val downloads = offlineDownloadService.getAllDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val summary = offlineDownloadService.observeDownloadSummary()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            OfflineDownloadSummary(0, 0)
+        )
 
     fun deleteDownload(id: String) {
         viewModelScope.launch {

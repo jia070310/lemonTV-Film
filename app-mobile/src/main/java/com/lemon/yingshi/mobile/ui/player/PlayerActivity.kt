@@ -323,9 +323,25 @@ class PlayerActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(viewModel.isLoadingMedia, viewModel.playerState) { loading, state ->
-                    loading || state.type == PlayerState.Type.BUFFERING
-                }.collect { buffering ->
-                    binding.bufferingContainer.isVisible = buffering
+                    Triple(loading, state.type, state.bufferedPosition - state.currentPosition)
+                }.collect { (loading, type, bufferedAhead) ->
+                    if (loading) {
+                        binding.bufferingContainer.isVisible = true
+                        return@collect
+                    }
+                    if (type != PlayerState.Type.BUFFERING) {
+                        binding.bufferingContainer.isVisible = false
+                        return@collect
+                    }
+                    if (bufferedAhead > 5_000L) {
+                        binding.bufferingContainer.isVisible = false
+                        return@collect
+                    }
+                    delay(800)
+                    val latest = viewModel.playerState.value
+                    binding.bufferingContainer.isVisible =
+                        latest.type == PlayerState.Type.BUFFERING &&
+                            latest.bufferedPosition - latest.currentPosition <= 5_000L
                 }
             }
         }

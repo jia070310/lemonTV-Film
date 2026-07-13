@@ -25,7 +25,8 @@ import javax.inject.Singleton
 @Singleton
 class PlayerDataSourceFactory @Inject constructor(
     @ApplicationContext private val context: Context,
-    @Named("playback") private val okHttpClient: OkHttpClient
+    @Named("playback") private val okHttpClient: OkHttpClient,
+    private val deviceStorageProfile: DeviceStorageProfile
 ) {
     private val databaseProvider = StandaloneDatabaseProvider(context)
 
@@ -33,7 +34,7 @@ class PlayerDataSourceFactory @Inject constructor(
         val cacheDir = File(context.cacheDir, "exoplayer_cache").apply { mkdirs() }
         SimpleCache(
             cacheDir,
-            LeastRecentlyUsedCacheEvictor(CACHE_MAX_BYTES),
+            LeastRecentlyUsedCacheEvictor(deviceStorageProfile.playbackCacheMaxBytes()),
             databaseProvider
         )
     }
@@ -133,9 +134,6 @@ class PlayerDataSourceFactory @Inject constructor(
         }
     }
 
-    private companion object {
-        const val CACHE_MAX_BYTES = 512L * 1024 * 1024
-    }
 }
 
 internal fun isLocalPlaybackUrl(url: String?): Boolean {

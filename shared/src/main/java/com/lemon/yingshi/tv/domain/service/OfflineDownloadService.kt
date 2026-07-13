@@ -7,14 +7,14 @@ import com.lemon.yingshi.tv.data.preferences.MacCmsPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 
 data class OfflineDownloadSummary(
     val downloadingCount: Int,
-    val completedCount: Int
+    val completedCount: Int,
+    val totalStorageBytes: Long = 0L
 ) {
     val totalCount: Int get() = downloadingCount + completedCount
 }
@@ -31,7 +31,8 @@ data class OfflineDownloadItem(
     val progress: Int,
     val localPlaybackUrl: String?,
     val errorMessage: String?,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val storageSizeBytes: Long = 0L
 ) {
     val isCompleted: Boolean get() = status == OfflineDownloadStatus.COMPLETED
     val isPaused: Boolean get() = status == OfflineDownloadStatus.PAUSED
@@ -64,16 +65,14 @@ class OfflineDownloadService @Inject constructor(
 
     fun observeDownloadSummary(): Flow<OfflineDownloadSummary> {
         return macCmsPreferences.serverUrl.flatMapLatest { serverUrl ->
-            combine(
-                offlineDownloadDao.observeActiveDownloadCount(serverUrl),
-                offlineDownloadDao.observeDownloadCountByStatus(
-                    serverUrl,
-                    OfflineDownloadStatus.COMPLETED
-                )
-            ) { downloadingCount, completedCount ->
+            offlineDownloadDao.getDownloadsByServer(serverUrl).map { list ->
                 OfflineDownloadSummary(
-                    downloadingCount = downloadingCount,
-                    completedCount = completedCount
+                    downloadingCount = list.count {
+                        it.status == OfflineDownloadStatus.PENDING ||
+                            it.status == OfflineDownloadStatus.DOWNLOADING
+                    },
+                    completedCount = list.count { it.status == OfflineDownloadStatus.COMPLETED },
+                    totalStorageBytes = offlineDownloadManager.getOfflineStorageSizeBytes()
                 )
             }
         }
@@ -188,19 +187,23 @@ class OfflineDownloadService @Inject constructor(
         private fun sanitizeIdPart(value: String): String =
             value.replace(':', '_').replace('/', '_').replace('\\', '_')
     }
-}
 
-private fun OfflineDownloadEntity.toItem() = OfflineDownloadItem(
-    id = id,
-    mediaId = mediaId,
-    episodeId = episodeId,
-    title = title,
-    episodeTitle = episodeTitle,
-    posterUrl = posterUrl,
-    videoUrl = videoUrl,
-    status = status,
-    progress = progress,
-    localPlaybackUrl = localPlaybackUrl,
-    errorMessage = errorMessage,
-    updatedAt = updatedAt
-)
+    private fun OfflineDownloadEntity.toItem(): OfflineDownloadItem {
+        val diskSize = offlineDownloadManager.getDownloadSizeBytes(id)
+        return OfflineDownloadItem(
+            id = id,
+            mediaId = mediaId,
+            episodeId = episodeId,
+            title = title,
+            episodeTitle = episodeTitle,
+            posterUrl = posterUrl,
+            videoUrl = videoUrl,
+            status = status,
+            progress = progress,
+            localPlaybackUrl = localPlaybackUrl,
+            errorMessage = errorMessage,
+            updatedAt = updatedAt,
+            storageSizeBytes = maxOf(bytesDownloaded, diskSize)
+        )
+    }
+}

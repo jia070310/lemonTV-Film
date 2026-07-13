@@ -17,7 +17,7 @@
     <string name="latest_recommend">最新推荐</string>
     <string name="more">更多</string>
     <string name="offline_cache">离线缓存</string>
-    <string name="offline_cache_desc">正在下载 %1$d 部 · 已缓存 %2$d 部</string>
+    <string name="offline_cache_desc">正在下载 %1$d 部 · 已缓存 %2$d 部 · 共 %3$s</string>
     <string name="offline_cache_desc_empty">在详情页加入缓存</string>
     <string name="filter_title">高级筛选</string>
     <string name="filter_advanced">高级筛选</string>
@@ -113,14 +113,17 @@
     <string name="cache_playback">播放缓存</string>
     <string name="cache_playback_desc">预加载的视频分片，用于加速播放</string>
     <string name="cache_cover">封面缓存</string>
-    <string name="cache_cover_desc">海报图片与观看历史封面</string>
+    <string name="cache_cover_desc">海报与观看历史封面，上限内满额自动覆盖最旧</string>
+    <string name="cache_home_feed">首页数据缓存</string>
+    <string name="cache_home_feed_desc">首页栏目数据，上限内满额自动覆盖最旧</string>
+    <string name="cache_clear_home_feed_short">清除</string>
     <string name="cache_total">合计占用</string>
     <string name="cache_clear_playback">清除播放缓存</string>
     <string name="cache_clear_playback_short">清除</string>
     <string name="cache_clear_cover">清除封面缓存</string>
     <string name="cache_clear_cover_short">清除</string>
     <string name="cache_clear_all">一键清除全部</string>
-    <string name="cache_clear_all_confirm">确定清除全部播放缓存和封面缓存？</string>
+    <string name="cache_clear_all_confirm">确定清除全部播放缓存、封面缓存与首页数据缓存？</string>
     <string name="cache_cleared">缓存已清除</string>
     <string name="settings_resource">资源管理</string>
     <string name="settings_resource_desc">填入 MacCMS 站点根地址（需已开启视频 API）</string>
@@ -197,6 +200,8 @@
     <string name="cancel">取消</string>
     <string name="confirm">确定</string>
     <string name="offline_downloads_title">离线缓存</string>
+    <string name="offline_downloads_total_size">共 %1$s · %2$d 项</string>
+    <string name="offline_item_size">占用 %1$s</string>
     <string name="offline_downloads_empty">暂无离线缓存</string>
     <string name="offline_downloads_empty_hint">在详情页点击「加入缓存」，即可下载当前选集</string>
     <string name="offline_downloads_clear">清空离线缓存</string>

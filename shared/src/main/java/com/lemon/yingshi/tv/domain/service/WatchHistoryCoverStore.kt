@@ -2,6 +2,7 @@ package com.lemon.yingshi.tv.domain.service
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.lemon.yingshi.tv.util.DiskCacheTrimHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
@@ -11,7 +12,8 @@ import kotlin.math.min
 
 @Singleton
 class WatchHistoryCoverStore @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceStorageProfile: DeviceStorageProfile
 ) {
     private val coverDir: File
         get() = File(context.filesDir, "watch_history_covers").also { it.mkdirs() }
@@ -22,9 +24,18 @@ class WatchHistoryCoverStore @Inject constructor(
         val compressed = compressBitmap(source)
         val file = File(coverDir, buildFileName(mediaId, episodeId))
         return try {
+            val maxBytes = deviceStorageProfile.watchHistoryCoverMaxBytes()
+            DiskCacheTrimHelper.trimToMaxBytes(
+                dir = coverDir,
+                maxBytes = maxBytes,
+                reservedBytes = estimateJpegBytes(compressed),
+                exclude = file.takeIf { it.exists() }
+            )
             FileOutputStream(file).use { output ->
                 compressed.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
             }
+            file.setLastModified(System.currentTimeMillis())
+            DiskCacheTrimHelper.trimToMaxBytes(coverDir, maxBytes)
             file.absolutePath
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed to save watch history cover", e)
@@ -46,6 +57,15 @@ class WatchHistoryCoverStore @Inject constructor(
         coverDir.listFiles()?.forEach { file ->
             runCatching { file.delete() }
         }
+    }
+
+    fun getCacheSizeBytes(): Long = DiskCacheTrimHelper.directorySizeBytes(coverDir)
+
+    fun maxCacheBytes(): Long = deviceStorageProfile.watchHistoryCoverMaxBytes()
+
+    private fun estimateJpegBytes(bitmap: Bitmap): Long {
+        val pixels = bitmap.width.toLong() * bitmap.height
+        return (pixels / 4).coerceAtLeast(8L * 1024)
     }
 
     private fun compressBitmap(source: Bitmap): Bitmap {

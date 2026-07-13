@@ -13,8 +13,8 @@ android {
         applicationId = "com.lemon.yingshi.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10008
-        versionName = "1.0.8"
+        versionCode = 10009
+        versionName = "1.0.9"
 
         vectorDrawables.useSupportLibrary = true
     }

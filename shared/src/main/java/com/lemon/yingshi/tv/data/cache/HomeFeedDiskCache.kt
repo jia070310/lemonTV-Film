@@ -1,9 +1,10 @@
 package com.lemon.yingshi.tv.data.cache
 
 import android.content.Context
-import android.os.StatFs
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
+import com.lemon.yingshi.tv.domain.service.DeviceStorageProfile
 import com.lemon.yingshi.tv.ui.screens.home.MacCmsHomeSection
+import com.lemon.yingshi.tv.util.DiskCacheTrimHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.security.MessageDigest
@@ -15,11 +16,12 @@ import kotlinx.serialization.json.Json
 
 /**
  * 首页栏目磁盘缓存：下次打开先读缓存秒显，后台刷新后覆盖。
- * 容量随设备剩余空间动态调整，满额按最旧文件淘汰。
+ * 达到上限后按最旧文件淘汰（LRU）。
  */
 @Singleton
 class HomeFeedDiskCache @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val deviceStorageProfile: DeviceStorageProfile
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val cacheDir: File
@@ -56,11 +58,22 @@ class HomeFeedDiskCache @Inject constructor(
                 }
         )
         val bytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
-        if (bytes.size > maxCacheBytes()) return
-        trimCacheIfNeeded(bytes.size.toLong())
+        val maxBytes = deviceStorageProfile.homeFeedCacheMaxBytes()
+        if (bytes.size > maxBytes) return
+
+        val targetFile = cacheFile(serverUrl)
+        DiskCacheTrimHelper.trimToMaxBytes(
+            dir = cacheDir,
+            maxBytes = maxBytes,
+            reservedBytes = bytes.size.toLong(),
+            exclude = targetFile.takeIf { it.exists() }
+        )
+        if (DiskCacheTrimHelper.directorySizeBytes(cacheDir) + bytes.size > maxBytes) return
+
         runCatching {
-            cacheFile(serverUrl).writeBytes(bytes)
+            targetFile.writeBytes(bytes)
         }
+        DiskCacheTrimHelper.trimToMaxBytes(cacheDir, maxBytes)
     }
 
     fun toRecommendedItems(snapshots: List<CachedVodSnapshot>): List<MacCmsVodItem> =
@@ -78,38 +91,26 @@ class HomeFeedDiskCache @Inject constructor(
             isLoading = false
         )
 
+    fun getCacheSizeBytes(): Long = DiskCacheTrimHelper.directorySizeBytes(cacheDir)
+
+    fun maxCacheBytes(): Long = deviceStorageProfile.homeFeedCacheMaxBytes()
+
+    fun clearAll() {
+        runCatching {
+            cacheDir.listFiles()?.forEach { file ->
+                if (file.isFile) file.delete()
+            }
+        }
+    }
+
     private fun cacheFile(serverUrl: String): File {
         val hash = sha256(serverUrl.trim().lowercase())
         return File(cacheDir, "feed_$hash.json")
     }
 
-    private fun maxCacheBytes(): Long {
-        val stat = runCatching { StatFs(context.cacheDir.absolutePath) }.getOrNull()
-        val freeBytes = stat?.availableBytes ?: (32L * 1024 * 1024)
-        val dynamic = (freeBytes * 0.02).toLong()
-        return dynamic.coerceIn(MIN_CACHE_BYTES, MAX_CACHE_BYTES)
-    }
-
-    private fun trimCacheIfNeeded(incomingBytes: Long) {
-        val maxBytes = maxCacheBytes()
-        val files = cacheDir.listFiles()?.filter { it.isFile && it.extension == "json" }.orEmpty()
-        var total = files.sumOf { it.length() } + incomingBytes
-        if (total <= maxBytes) return
-        files.sortedBy { it.lastModified() }.forEach { file ->
-            if (total <= maxBytes) return
-            val len = file.length()
-            if (file.delete()) total -= len
-        }
-    }
-
     private fun sha256(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
-    }
-
-    companion object {
-        private const val MIN_CACHE_BYTES = 5L * 1024 * 1024
-        private const val MAX_CACHE_BYTES = 32L * 1024 * 1024
     }
 }
 

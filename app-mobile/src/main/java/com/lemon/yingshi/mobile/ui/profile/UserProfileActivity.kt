@@ -16,8 +16,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.ActivityUserProfileBinding
 import com.lemon.yingshi.mobile.databinding.ItemUserInfoRowBinding
-import com.lemon.yingshi.mobile.util.MediaStorageHelper
-import com.lemon.yingshi.mobile.util.StorageFormatter
+import com.lemon.yingshi.tv.domain.service.MediaStorageHelper
+import com.lemon.yingshi.tv.util.StorageFormatter
 import com.lemon.yingshi.mobile.util.setBackNavigation
 import com.lemon.yingshi.tv.domain.service.UserAvatarStore
 import dagger.hilt.android.AndroidEntryPoint
@@ -118,7 +118,11 @@ class UserProfileActivity : AppCompatActivity() {
                     binding.statHistory.statValue.text = state.historyCount.toString()
                     binding.statFavorite.statValue.text = state.favoriteCount.toString()
                     binding.statOffline.statValue.text =
-                        state.offlineSummary.completedCount.toString()
+                        if (state.offlineSummary.totalStorageBytes > 0L) {
+                            StorageFormatter.format(state.offlineSummary.totalStorageBytes)
+                        } else {
+                            state.offlineSummary.completedCount.toString()
+                        }
 
                     binding.rowPlayback.infoValue.text =
                         formatPlaybackTime(state.playbackTimeMs)

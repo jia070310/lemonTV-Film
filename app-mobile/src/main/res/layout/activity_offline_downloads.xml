@@ -15,6 +15,17 @@
         app:title="@string/offline_downloads_title"
         app:titleTextColor="@color/text_primary" />
 
+    <TextView
+        android:id="@+id/total_size_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="@dimen/screen_padding"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"

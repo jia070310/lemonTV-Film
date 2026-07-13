@@ -57,6 +57,14 @@
                 android:textColor="@color/primary_yellow"
                 android:textSize="12sp" />
 
+            <TextView
+                android:id="@+id/size_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
             <ProgressBar
                 android:id="@+id/progress_bar"
                 style="?android:attr/progressBarStyleHorizontal"

@@ -8,8 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.ActivityCacheBinding
 import com.lemon.yingshi.mobile.ui.settings.SettingsDialogs
-import com.lemon.yingshi.mobile.util.MediaStorageHelper
-import com.lemon.yingshi.mobile.util.StorageFormatter
+import com.lemon.yingshi.tv.domain.service.MediaStorageHelper
+import com.lemon.yingshi.tv.util.StorageFormatter
 import com.lemon.yingshi.mobile.util.setBackNavigation
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -39,6 +39,11 @@ class CacheActivity : AppCompatActivity() {
             toastCleared()
             refreshSizes()
         }
+        binding.clearHomeFeedCache.setOnClickListener {
+            mediaStorageHelper.clearHomeFeedCache()
+            toastCleared()
+            refreshSizes()
+        }
         binding.clearAllCache.setOnClickListener {
             SettingsDialogs.showConfirmDialog(
                 context = this,
@@ -54,9 +59,13 @@ class CacheActivity : AppCompatActivity() {
     private fun refreshSizes() {
         val playback = mediaStorageHelper.getPlaybackCacheSizeBytes()
         val cover = mediaStorageHelper.getCoverCacheSizeBytes()
-        val total = playback + cover
+        val homeFeed = mediaStorageHelper.getHomeFeedCacheSizeBytes()
+        val total = playback + cover + homeFeed
         binding.playbackCacheSize.text = StorageFormatter.format(playback)
-        binding.coverCacheSize.text = StorageFormatter.format(cover)
+        binding.coverCacheSize.text =
+            "${StorageFormatter.format(cover)} / ${StorageFormatter.format(mediaStorageHelper.getCoverCacheMaxBytes())}"
+        binding.homeFeedCacheSize.text =
+            "${StorageFormatter.format(homeFeed)} / ${StorageFormatter.format(mediaStorageHelper.getHomeFeedCacheMaxBytes())}"
         binding.totalCacheSize.text = getString(R.string.cache_total) + ": " + StorageFormatter.format(total)
     }
 

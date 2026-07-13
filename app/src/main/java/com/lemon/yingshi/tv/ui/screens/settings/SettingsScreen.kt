@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.runtime.Composable
@@ -71,6 +72,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.platform.LocalConfiguration
@@ -105,7 +108,9 @@ import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
 import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import com.lemon.yingshi.tv.ui.viewmodel.MacCmsConfigViewModel
+import com.lemon.yingshi.tv.ui.viewmodel.StorageSettingsViewModel
 import com.lemon.yingshi.tv.ui.viewmodel.VersionUpdateViewModel
+import com.lemon.yingshi.tv.util.StorageFormatter
 import com.lemon.yingshi.tv.domain.model.VersionInfo
 import com.lemon.yingshi.tv.domain.service.DownloadService
 import com.lemon.yingshi.tv.ui.components.VersionUpdateDialog
@@ -186,6 +191,7 @@ fun SettingsScreen(
                 onShowClearWatchHistoryDialog = { showClearWatchHistoryDialog = true },
                 onShowVersionUpdateDialog = { showVersionUpdateDialog = true },
                 onShowClearPlaybackStatsDialog = { showClearPlaybackStatsDialog = true },
+                onShowSuccessMessage = { showSuccessMessage = it },
                 hasUpdate = hasUpdate,
                 versionInfo = versionInfo,
                 modifier = Modifier.weight(1f),
@@ -505,6 +511,7 @@ private fun SettingsContent(
     onShowClearWatchHistoryDialog: () -> Unit,
     onShowVersionUpdateDialog: () -> Unit,
     onShowClearPlaybackStatsDialog: () -> Unit,
+    onShowSuccessMessage: (String) -> Unit,
     hasUpdate: Boolean,
     versionInfo: VersionInfo?,
     modifier: Modifier = Modifier,
@@ -573,7 +580,8 @@ private fun SettingsContent(
                     SectionTitle(title = "播放设置", accentColor = PrimaryYellow)
                     Spacer(modifier = Modifier.height(16.dp.scale(s)))
                     PlaybackSettingsSection(
-                        onShowClearWatchHistoryDialog = onShowClearWatchHistoryDialog
+                        onShowClearWatchHistoryDialog = onShowClearWatchHistoryDialog,
+                        onShowSuccessMessage = onShowSuccessMessage
                     )
                 }
                 3 -> { // 关于应用
@@ -725,15 +733,27 @@ private fun ScanConcurrencySelectDialog(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PlaybackSettingsSection(
-    onShowClearWatchHistoryDialog: () -> Unit = {}
+    onShowClearWatchHistoryDialog: () -> Unit = {},
+    onShowSuccessMessage: (String) -> Unit = {}
 ) {
     val s = LocalCompactUiScale.current
     val playerSettingsPreferences = androidx.hilt.navigation.compose.hiltViewModel<com.lemon.yingshi.tv.ui.viewmodel.PlayerSettingsViewModel>()
+    val storageViewModel: StorageSettingsViewModel = hiltViewModel()
     val rememberPlaybackEnabled by playerSettingsPreferences.rememberPlaybackPosition.collectAsState(initial = true)
     val seekDurationSeconds by playerSettingsPreferences.seekDurationSeconds.collectAsState(initial = 15)
     val coroutineScope = rememberCoroutineScope()
     var showSeekDurationDialog by remember { mutableStateOf(false) }
     val seekOptions = remember { listOf(15, 20, 25, 30, 35) }
+
+    var cacheSizes by remember { mutableStateOf(storageViewModel.readCacheSizes()) }
+    var showClearPlaybackCacheDialog by remember { mutableStateOf(false) }
+    var showClearCoverCacheDialog by remember { mutableStateOf(false) }
+    var showClearHomeFeedCacheDialog by remember { mutableStateOf(false) }
+    var showClearAllCacheDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        cacheSizes = storageViewModel.readCacheSizes()
+    }
     
     Column {
         // 快进快退时长
@@ -801,6 +821,64 @@ private fun PlaybackSettingsSection(
 
         Spacer(modifier = Modifier.height(16.dp.scale(s)))
 
+        SectionTitle(title = "存储管理", accentColor = PrimaryYellow)
+        Spacer(modifier = Modifier.height(12.dp.scale(s)))
+
+        Text(
+            text = "合计占用 ${StorageFormatter.format(cacheSizes.totalBytes)} · 退出播放后自动清理播放缓存",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+            modifier = Modifier.padding(bottom = 12.dp.scale(s))
+        )
+
+        SettingCard(
+            icon = Icons.Default.PlayArrow,
+            iconBackgroundColor = Color.White.copy(alpha = 0.4f),
+            iconTint = Color(0xFF60a5fa),
+            title = "播放缓存",
+            subtitle = "当前 ${StorageFormatter.format(cacheSizes.playbackBytes)}，仅预加载播放头前方约 90 秒",
+            onClick = { showClearPlaybackCacheDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp.scale(s)))
+
+        SettingCard(
+            icon = Icons.Default.CloudUpload,
+            iconBackgroundColor = Color.White.copy(alpha = 0.4f),
+            iconTint = Color(0xFFa78bfa),
+            title = "封面缓存",
+            subtitle = "当前 ${StorageFormatter.format(cacheSizes.coverBytes)} / 上限 ${StorageFormatter.format(cacheSizes.coverMaxBytes)}，满额自动覆盖最旧",
+            onClick = { showClearCoverCacheDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp.scale(s)))
+
+        SettingCard(
+            icon = Icons.Default.Storage,
+            iconBackgroundColor = Color.White.copy(alpha = 0.4f),
+            iconTint = Color(0xFF34d399),
+            title = "首页数据缓存",
+            subtitle = "当前 ${StorageFormatter.format(cacheSizes.homeFeedBytes)} / 上限 ${StorageFormatter.format(cacheSizes.homeFeedMaxBytes)}，满额自动覆盖最旧",
+            onClick = { showClearHomeFeedCacheDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp.scale(s)))
+
+        SettingCard(
+            icon = Icons.Default.Refresh,
+            iconBackgroundColor = Color.White.copy(alpha = 0.4f),
+            iconTint = Color(0xFFef4444),
+            title = "一键清除全部缓存",
+            subtitle = "清除播放、封面与首页数据缓存",
+            onClick = { showClearAllCacheDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(16.dp.scale(s)))
+
         // 清空最近播放记录
         SettingCard(
             icon = Icons.Default.Refresh,
@@ -823,6 +901,62 @@ private fun PlaybackSettingsSection(
                     showSeekDurationDialog = false
                 },
                 onDismiss = { showSeekDurationDialog = false }
+            )
+        }
+
+        if (showClearPlaybackCacheDialog) {
+            ConfirmDialog(
+                title = "清除播放缓存",
+                message = "确定清除播放预加载缓存？退出播放时也会自动清理。",
+                onConfirm = {
+                    storageViewModel.clearPlaybackCache()
+                    cacheSizes = storageViewModel.readCacheSizes()
+                    showClearPlaybackCacheDialog = false
+                    onShowSuccessMessage("播放缓存已清除")
+                },
+                onDismiss = { showClearPlaybackCacheDialog = false }
+            )
+        }
+
+        if (showClearCoverCacheDialog) {
+            ConfirmDialog(
+                title = "清除封面缓存",
+                message = "确定清除海报与观看历史封面缓存？",
+                onConfirm = {
+                    storageViewModel.clearCoverCache()
+                    cacheSizes = storageViewModel.readCacheSizes()
+                    showClearCoverCacheDialog = false
+                    onShowSuccessMessage("封面缓存已清除")
+                },
+                onDismiss = { showClearCoverCacheDialog = false }
+            )
+        }
+
+        if (showClearHomeFeedCacheDialog) {
+            ConfirmDialog(
+                title = "清除首页数据缓存",
+                message = "确定清除首页栏目数据缓存？返回首页将重新加载。",
+                onConfirm = {
+                    storageViewModel.clearHomeFeedCache()
+                    cacheSizes = storageViewModel.readCacheSizes()
+                    showClearHomeFeedCacheDialog = false
+                    onShowSuccessMessage("首页数据缓存已清除")
+                },
+                onDismiss = { showClearHomeFeedCacheDialog = false }
+            )
+        }
+
+        if (showClearAllCacheDialog) {
+            ConfirmDialog(
+                title = "清除全部缓存",
+                message = "确定清除播放、封面与首页数据缓存？",
+                onConfirm = {
+                    storageViewModel.clearAllCaches()
+                    cacheSizes = storageViewModel.readCacheSizes()
+                    showClearAllCacheDialog = false
+                    onShowSuccessMessage("全部缓存已清除")
+                },
+                onDismiss = { showClearAllCacheDialog = false }
             )
         }
     }
@@ -1452,45 +1586,50 @@ private fun ConfirmDialog(
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.7f))
-            .onPreviewKeyEvent { keyEvent ->
-                // 处理返回键
-                if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
-                    onDismiss()
-                    true
-                } else {
-                    false
-                }
-            }
-            .clickable(
-                onClick = { },
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }
-            ),
-        contentAlignment = Alignment.Center
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
     ) {
-        Card(
-            onClick = {},
-            colors = CardDefaults.colors(
-                containerColor = DialogUiTokens.ContainerColor,
-                focusedContainerColor = DialogUiTokens.ContainerColor
-            ),
+        Box(
             modifier = Modifier
-                .width(DialogDimens.CardWidthStandard)
-                .padding(DialogDimens.CardPaddingOuter)
-                .border(DialogUiTokens.BorderWidth, DialogUiTokens.BorderColor, RoundedCornerShape(DialogUiTokens.CornerRadius))
-                .focusProperties {
-                    // 禁止焦点向外移动，实现焦点陷阱
-                    canFocus = true
-                }
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.7f))
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
+                        onDismiss()
+                        true
+                    } else {
+                        false
+                    }
+                },
+            contentAlignment = Alignment.Center
         ) {
-            Column(
-                modifier = Modifier.padding(DialogDimens.CardPaddingInner)
+            Card(
+                onClick = {},
+                colors = CardDefaults.colors(
+                    containerColor = DialogUiTokens.ContainerColor,
+                    focusedContainerColor = DialogUiTokens.ContainerColor
+                ),
+                modifier = Modifier
+                    .width(DialogDimens.CardWidthStandard)
+                    .padding(DialogDimens.CardPaddingOuter)
+                    .border(
+                        DialogUiTokens.BorderWidth,
+                        DialogUiTokens.BorderColor,
+                        RoundedCornerShape(DialogUiTokens.CornerRadius)
+                    )
+                    .focusProperties {
+                        canFocus = true
+                    }
             ) {
+                Column(
+                    modifier = Modifier.padding(DialogDimens.CardPaddingInner)
+                ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.headlineSmall,
@@ -1567,7 +1706,8 @@ private fun ConfirmDialog(
             }
         }
     }
-    
+    }
+
     // 对话框显示时，默认将焦点给"取消"按钮（安全操作），避免误触"确定"
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()

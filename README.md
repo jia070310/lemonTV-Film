@@ -4,8 +4,8 @@
 
 | 平台 | 包名 | 当前版本 | versionCode |
 |------|------|----------|-------------|
-| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.8** | **10008** |
-| 手机 | `com.lemon.yingshi.mobile` | **v1.0.2** | **10002** |
+| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.9** | **10009** |
+| 手机 | `com.lemon.yingshi.mobile` | **v1.0.3** | **10003** |
 
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
@@ -428,13 +428,15 @@ Release 签名配置见 `app/build.gradle.kts` 与 `app-mobile/build.gradle.kts`
 
 | 平台 | Release 标签 | APK 文件名 |
 |------|--------------|------------|
-| TV | `v1.0.8` | `LomenTV-release-v1.0.8.apk` 或含 `tv` |
-| 手机 | `mobile-v1.0.2` | `LomenMobile-release-v1.0.2.apk`（文件名需含 `mobile`） |
+| TV | `v1.0.9` | `LomenTV-release-v1.0.9.apk` 或含 `tv` |
+| 手机 | `mobile-v1.0.3` | `LomenMobile-release-v1.0.3.apk`（文件名需含 `mobile`） |
 
 ## 版本发布
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| [v1.0.9](RELEASES/v1.0.9.md) | 2026-07-13 | TV：存储与滚动预缓存优化、设置页缓存管理、确认弹窗居中 |
+| [mobile-v1.0.3](RELEASES/mobile-v1.0.3.md) | 2026-07-13 | 手机：同步缓存优化、离线缓存容量显示、我的缓存增强 |
 | [v1.0.8](RELEASES/v1.0.8.md) | 2026-07-13 | TV：筛选加载更多焦点优化、首页全分类加载、按钮样式统一 |
 | [v1.0.7](RELEASES/v1.0.7.md) | 2026-07-13 | TV：修复电影多线路误显示为选集 |
 | [mobile-v1.0.2](RELEASES/mobile-v1.0.2.md) | 2026-07-13 | 手机：离线缓存完善（先选线路再选集）、并行下载、更新安装修复 |

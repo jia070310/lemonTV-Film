@@ -6,11 +6,19 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URL
 
+data class HlsSegment(
+    val url: String,
+    val startTimeSec: Double,
+    val durationSec: Double
+)
+
 data class HlsPlaylistParseResult(
-    val segmentUrls: List<String>,
+    val segments: List<HlsSegment>,
     val mediaPlaylistUrl: String,
     val mediaPlaylistContent: String
-)
+) {
+    val segmentUrls: List<String> = segments.map { it.url }
+}
 
 /**
  * 解析 HLS 播放列表，提取 TS/m4s 分片 URL。
@@ -46,7 +54,7 @@ object HlsPlaylistParser {
         val segments = parseMediaSegments(content, playlistUrl)
         if (segments.isEmpty()) return@withContext null
         HlsPlaylistParseResult(
-            segmentUrls = segments,
+            segments = segments,
             mediaPlaylistUrl = playlistUrl,
             mediaPlaylistContent = content
         )
@@ -163,18 +171,37 @@ object HlsPlaylistParser {
         }
     }
 
-    private fun parseMediaSegments(content: String, playlistUrl: String): List<String> {
-        val segments = mutableListOf<String>()
-        content.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("#") }
-            .forEach { line ->
-                if (isSegmentLine(line)) {
-                    segments.add(resolveUrl(playlistUrl, line))
+    private fun parseMediaSegments(content: String, playlistUrl: String): List<HlsSegment> {
+        val segments = mutableListOf<HlsSegment>()
+        var pendingDurationSec = DEFAULT_SEGMENT_DURATION_SEC
+        var startTimeSec = 0.0
+        content.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            when {
+                line.startsWith("#EXTINF:") -> {
+                    pendingDurationSec = line
+                        .removePrefix("#EXTINF:")
+                        .substringBefore(",")
+                        .trim()
+                        .toDoubleOrNull()
+                        ?: DEFAULT_SEGMENT_DURATION_SEC
+                }
+                line.isNotEmpty() && !line.startsWith("#") && isSegmentLine(line) -> {
+                    segments.add(
+                        HlsSegment(
+                            url = resolveUrl(playlistUrl, line),
+                            startTimeSec = startTimeSec,
+                            durationSec = pendingDurationSec
+                        )
+                    )
+                    startTimeSec += pendingDurationSec
                 }
             }
+        }
         return segments
     }
+
+    private const val DEFAULT_SEGMENT_DURATION_SEC = 6.0
 
     private fun resolveUrl(baseUrl: String, path: String): String {
         if (path.startsWith("http://", ignoreCase = true) ||

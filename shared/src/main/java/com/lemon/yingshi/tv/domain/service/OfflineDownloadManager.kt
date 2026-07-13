@@ -224,6 +224,18 @@ class OfflineDownloadManager @Inject constructor(
         return root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
+    fun getDownloadSizeBytes(id: String): Long {
+        val dir = resolveDownloadDir(id)
+        if (dir.exists()) {
+            return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        }
+        val legacyDir = File(context.filesDir, "$OFFLINE_DIR/$id")
+        if (legacyDir.exists()) {
+            return legacyDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        }
+        return 0L
+    }
+
     /** 并行调度多个离线缓存任务（手机端）。 */
     private fun scheduleDownloads() {
         scope.launch {

@@ -177,6 +177,7 @@ class PlayerService @Inject constructor(
     fun releasePlayer() {
         cancelPendingRetry()
         hlsPrefetchService.stop()
+        playerDataSourceFactory.clearMediaCache()
         exoPlayer?.apply {
             playWhenReady = false
             pause()
@@ -286,7 +287,7 @@ class PlayerService @Inject constructor(
 
         val playbackUrl = normalizeLocalPlaybackUrl(url)
         if (!isLocalPlaybackUrl(playbackUrl)) {
-            hlsPrefetchService.start(playbackUrl, headers)
+            hlsPrefetchService.start(playbackUrl, headers, startPositionMs)
         }
 
         exoPlayer?.apply {
@@ -567,9 +568,11 @@ class PlayerService @Inject constructor(
 
     private fun updatePositionInfo() {
         exoPlayer?.let { player ->
+            val position = player.currentPosition
+            hlsPrefetchService.updatePlayhead(position)
             val prefetch = hlsPrefetchService.state.value
             _playerState.value = _playerState.value.copy(
-                currentPosition = player.currentPosition,
+                currentPosition = position,
                 duration = player.duration.coerceAtLeast(0),
                 bufferedPosition = player.bufferedPosition,
                 prefetchProgress = prefetch.progress,

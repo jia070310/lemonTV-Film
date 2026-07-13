@@ -1,4 +1,4 @@
-package com.lemon.yingshi.mobile.util
+package com.lemon.yingshi.tv.util
 
 import kotlin.math.ln
 import kotlin.math.pow

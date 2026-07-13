@@ -20,8 +20,8 @@ import com.lemon.yingshi.mobile.databinding.FragmentProfileBinding
 import com.lemon.yingshi.mobile.databinding.ItemProfileMenuBinding
 import com.lemon.yingshi.mobile.ui.SettingsActivity
 import com.lemon.yingshi.mobile.ui.VersionUpdateViewModel
-import com.lemon.yingshi.mobile.util.MediaStorageHelper
-import com.lemon.yingshi.mobile.util.StorageFormatter
+import com.lemon.yingshi.tv.domain.service.MediaStorageHelper
+import com.lemon.yingshi.tv.util.StorageFormatter
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.launch
