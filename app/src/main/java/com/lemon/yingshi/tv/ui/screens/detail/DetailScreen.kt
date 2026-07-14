@@ -160,7 +160,7 @@ private fun DetailContent(
 ) {
     var focusedEpisodePath by remember(episodes) {
         mutableStateOf(
-            if (media.type.usesMacCmsEpisodeLayout() && episodes.isNotEmpty()) {
+            if (episodes.isNotEmpty()) {
                 episodes.sortedBy { it.episodeNumber }.firstOrNull()?.path
             } else {
                 media.path
@@ -179,7 +179,7 @@ private fun DetailContent(
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val episodeColumns = max(
         1,
-        ((screenWidth - 96.dp + 12.dp) / (72.dp + 12.dp)).toInt()
+        ((screenWidth - 96.dp + 12.dp) / (96.dp + 12.dp)).toInt()
     )
     val hasEpisodePagination = episodes.size > episodeColumns * 4
 
@@ -240,10 +240,11 @@ private fun DetailContent(
             }
         }
 
-        if (media.type.usesMacCmsEpisodeLayout() && episodes.isNotEmpty()) {
+        if (episodes.isNotEmpty()) {
             item {
                 EpisodesGridSection(
                     episodes = episodes,
+                    mediaType = media.type,
                     totalEpisodes = media.totalEpisodes,
                     selectedEpisodeId = selectedEpisodeId,
                     hasPlaySourcesAbove = isMacCms && playSources.isNotEmpty(),
@@ -433,15 +434,20 @@ private fun HeroSection(
                     )
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    if (media.type.usesMacCmsEpisodeLayout()) {
-                    // 最大集号（集号缺失或全被误标为 1 时，用本季条数兜底）
-                    val latestEpisode = if (episodes.isEmpty()) 0 else maxOf(
-                        episodes.maxOfOrNull { it.episodeNumber } ?: 0,
-                        episodes.size
-                    )
-                    val episodeCount = media.totalEpisodes ?: latestEpisode
+                    if (episodes.isNotEmpty()) {
+                        val metaText = if (media.type == MediaType.MOVIE) {
+                            "共${episodes.size}个版本"
+                        } else {
+                            // 最大集号（集号缺失或全被误标为 1 时，用本季条数兜底）
+                            val latestEpisode = maxOf(
+                                episodes.maxOfOrNull { it.episodeNumber } ?: 0,
+                                episodes.size
+                            )
+                            val episodeCount = media.totalEpisodes ?: latestEpisode
+                            "共${episodeCount}集"
+                        }
                         Text(
-                            text = "共${episodeCount}集",
+                            text = metaText,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White
                         )
@@ -749,6 +755,7 @@ private enum class PaginationFocusTarget {
 @Composable
 private fun EpisodesGridSection(
     episodes: List<EpisodeItem>,
+    mediaType: MediaType,
     totalEpisodes: Int?,
     selectedEpisodeId: String?,
     hasPlaySourcesAbove: Boolean,
@@ -761,9 +768,10 @@ private fun EpisodesGridSection(
     onEpisodeClick: (EpisodeItem) -> Unit
 ) {
     val sortedEpisodes = remember(episodes) { episodes.sortedBy { it.episodeNumber } }
+    val isMovieOptions = mediaType == MediaType.MOVIE
     val gridRows = 4
     val gridSpacing = 12.dp
-    val buttonWidth = 72.dp
+    val buttonWidth = 96.dp
     val buttonHeight = 48.dp
     val firstEpisodeFocusRequester = remember { FocusRequester() }
     var refocusPaginationButton by remember { mutableStateOf<PaginationFocusTarget?>(null) }
@@ -773,6 +781,12 @@ private fun EpisodesGridSection(
         sortedEpisodes.size
     )
     val totalCount = totalEpisodes ?: latestEpisode
+    val sectionTitle = if (isMovieOptions) "播放版本" else "选集"
+    val sectionSubtitle = if (isMovieOptions) {
+        "共${sortedEpisodes.size}个版本"
+    } else {
+        "更新至${latestEpisode}/${totalCount}集"
+    }
 
     Column(
         modifier = Modifier
@@ -831,12 +845,12 @@ private fun EpisodesGridSection(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "选集",
+                            text = sectionTitle,
                             style = MaterialTheme.typography.titleMedium,
                             color = TextPrimary
                         )
                         Text(
-                            text = "更新至${latestEpisode}/${totalCount}集",
+                            text = sectionSubtitle,
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextMuted
                         )
@@ -876,7 +890,10 @@ private fun EpisodesGridSection(
                                 if (episode != null) {
                                     val isSelected = episode.id == selectedEpisodeId
                                     EpisodeNumberButton(
-                                        episodeNumber = episode.episodeNumber,
+                                        label = EpisodeLabelFormatter.cellLabel(
+                                            episode.episodeNumber,
+                                            episode.title
+                                        ),
                                         isSelected = isSelected,
                                         buttonWidth = buttonWidth,
                                         buttonHeight = buttonHeight,
@@ -1015,7 +1032,7 @@ private fun EpisodePaginationBar(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun EpisodeNumberButton(
-    episodeNumber: Int,
+    label: String,
     isSelected: Boolean,
     buttonWidth: Dp,
     buttonHeight: Dp,
@@ -1045,15 +1062,17 @@ private fun EpisodeNumberButton(
             }
     ) {
         Text(
-            text = episodeNumber.toString(),
-            style = MaterialTheme.typography.bodyLarge.copy(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = if (highlighted) {
                     androidx.compose.ui.text.font.FontWeight.Bold
                 } else {
                     androidx.compose.ui.text.font.FontWeight.Normal
                 }
             ),
-            color = TvSelectableTokens.contentColor(isFocused)
+            color = TvSelectableTokens.contentColor(isFocused),
+            maxLines = 2,
+            softWrap = true
         )
     }
 }

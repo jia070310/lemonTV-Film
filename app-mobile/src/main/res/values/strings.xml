@@ -35,6 +35,8 @@
     <string name="expand_all">展开全文</string>
     <string name="collapse">收起</string>
     <string name="episode_list">剧集列表</string>
+    <string name="play_option_list">播放版本</string>
+    <string name="play_option_count_format">共%1$d个版本</string>
     <string name="play_source_title">线路选择</string>
     <string name="episode_count_format">更新至%1$d/%2$d集</string>
     <string name="prev_page">上一页</string>
@@ -210,8 +212,10 @@
     <string name="offline_download_batch_added">已加入 %1$d 集到缓存队列</string>
     <string name="offline_download_batch_none">所选集数已在缓存列表中</string>
     <string name="offline_cache_picker_title">选择缓存集数</string>
+    <string name="offline_cache_option_picker_title">选择缓存版本</string>
     <string name="offline_cache_source_picker_title">选择缓存线路</string>
     <string name="offline_cache_episode_picker_title_with_source">选择缓存集数 · %1$s</string>
+    <string name="offline_cache_option_picker_title_with_source">选择缓存版本 · %1$s</string>
     <string name="next_step">下一步</string>
     <string name="offline_cache_select_all">全选</string>
     <string name="offline_cache_deselect_all">取消全选</string>

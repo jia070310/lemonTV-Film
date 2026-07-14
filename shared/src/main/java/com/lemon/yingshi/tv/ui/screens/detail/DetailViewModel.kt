@@ -296,30 +296,29 @@ class DetailViewModel @Inject constructor(
         val mediaId = currentMediaId ?: return null
         val currentState = _uiState.value as? DetailUiState.Success ?: return null
         val media = currentState.media
-
-        if (media.type == MediaType.MOVIE) {
-            val history = watchHistoryDao.getLatestWatchHistoryByMovieId(mediaId)
-            return ResumePlaybackInfo(
-                videoUrl = media.path.orEmpty(),
-                title = media.title,
-                episodeTitle = null,
-                mediaId = mediaId,
-                episodeId = null,
-                startPosition = history?.progress?.takeIf { it > 0 } ?: 0L,
-                posterUrl = currentPosterUrl
-            )
-        }
-
         val allEpisodes = allEpisodesBySeason.values.flatten()
-        if (allEpisodes.isEmpty()) {
-            val path = media.path?.takeIf { it.isNotBlank() } ?: return null
-            val history = watchHistoryDao.getLatestWatchHistoryByMovieId(mediaId)
+
+        // 电影多版本（HD中字/国语等）与剧集一样按选集续播
+        val needsEpisodePick = allEpisodes.size > 1 ||
+            (media.type != MediaType.MOVIE && allEpisodes.isNotEmpty())
+
+        if (!needsEpisodePick) {
+            val single = allEpisodes.firstOrNull()
+            val history = if (single != null) {
+                resolveEpisodeWatchHistory(mediaId, single.id)
+                    ?: watchHistoryDao.getLatestWatchHistoryByMovieId(mediaId)
+            } else {
+                watchHistoryDao.getLatestWatchHistoryByMovieId(mediaId)
+            }
+            val path = single?.path?.takeIf { it.isNotBlank() }
+                ?: media.path?.takeIf { it.isNotBlank() }
+                ?: return null
             return ResumePlaybackInfo(
                 videoUrl = path,
                 title = media.title,
-                episodeTitle = null,
+                episodeTitle = single?.let { buildEpisodeLabel(it) },
                 mediaId = mediaId,
-                episodeId = null,
+                episodeId = single?.id,
                 startPosition = history?.progress?.takeIf { it > 0 } ?: 0L,
                 posterUrl = currentPosterUrl
             )

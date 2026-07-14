@@ -14,13 +14,14 @@ import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.DialogOfflineCachePickerBinding
 import com.lemon.yingshi.tv.data.local.database.entity.OfflineDownloadStatus
 import com.lemon.yingshi.tv.ui.screens.detail.EpisodeItem
+import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import kotlin.math.max
 import kotlin.math.min
 
 object OfflineCachePickerDialog {
 
-    private const val COLUMNS = 4
-    private const val PER_PAGE = 20
+    private const val COLUMNS = 3
+    private const val PER_PAGE = 18
 
     data class EpisodeCacheState(
         val episode: EpisodeItem,
@@ -181,7 +182,7 @@ private class CacheEpisodeAdapter(
             onToggle: (String) -> Unit
         ) {
             val episode = state.episode
-            view.text = "%02d".format(episode.episodeNumber)
+            view.text = EpisodeLabelFormatter.cellLabel(episode.episodeNumber, episode.title)
             when {
                 !state.isSelectable -> {
                     view.alpha = 0.35f

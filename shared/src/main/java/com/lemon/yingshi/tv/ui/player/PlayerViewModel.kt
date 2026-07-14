@@ -15,6 +15,7 @@ import com.lemon.yingshi.tv.domain.service.SubtitleInfo
 import com.lemon.yingshi.tv.domain.service.TrackInfo
 import com.lemon.yingshi.tv.domain.service.WatchHistoryService
 import com.lemon.yingshi.tv.domain.service.WatchHistoryCoverStore
+import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import com.lemon.yingshi.tv.utils.WatchHistoryCoverCapture
 import androidx.media3.ui.PlayerView
 import java.lang.ref.WeakReference
@@ -708,11 +709,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun buildEpisodeTitle(episodeNumber: Int, title: String): String {
-        return if (title.isNotBlank()) {
-            "第${episodeNumber}集 $title"
-        } else {
-            "第${episodeNumber}集"
-        }
+        return EpisodeLabelFormatter.build(episodeNumber, title, currentTitle)
     }
 
     fun setPlaybackSpeed(speed: Float) {

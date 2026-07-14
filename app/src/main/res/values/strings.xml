@@ -26,6 +26,13 @@
     <string name="episodes">剧集</string>
     <string name="season">季</string>
     <string name="episode">集</string>
+    <string name="episode_list">剧集列表</string>
+    <string name="play_option_list">播放版本</string>
+    <string name="play_option_count_format">共%1$d个版本</string>
+    <string name="episode_count_format">更新至%1$d/%2$d集</string>
+    <string name="episode_total_format">共%1$d集</string>
+    <string name="player_select_episode">选集</string>
+    <string name="player_episode_list">播放列表</string>
     
     <!-- Player -->
     <string name="player_error">播放错误</string>

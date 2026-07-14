@@ -1,12 +1,21 @@
 package com.lemon.yingshi.tv.utils
 
+import com.lemon.yingshi.tv.domain.model.MacCmsPlayLayout
+
 /**
- * 统一剧集标签：避免「第2集 第02集」「第20集 第1-20集」这类重复。
+ * 统一剧集 / 播放版本标签：优先展示接口返回的原始名称
+ *（第1集、第01集、1、一集、HD中字、粤语等），避免强行改成 01/02。
  */
 object EpisodeLabelFormatter {
 
     private val EPISODE_LABEL = Regex("""^第\s*0*(\d+)\s*集$""")
     private val EPISODE_RANGE = Regex("""^第\s*0*(\d+)\s*-\s*0*(\d+)\s*集$""")
+
+    /** 详情页 / 缓存选择格：直接显示接口名，缺失时退回序号。 */
+    fun cellLabel(episodeNumber: Int, rawTitle: String?): String {
+        val subtitle = rawTitle?.trim().orEmpty()
+        return subtitle.ifEmpty { episodeNumber.toString() }
+    }
 
     fun build(episodeNumber: Int, rawTitle: String?, mediaTitle: String? = null): String {
         val subtitle = rawTitle?.trim().orEmpty()
@@ -14,12 +23,12 @@ object EpisodeLabelFormatter {
         return when {
             subtitle.isEmpty() || (seriesTitle.isNotEmpty() && subtitle == seriesTitle) ->
                 "第${episodeNumber}集"
-            EPISODE_LABEL.matches(subtitle) -> {
-                val parsed = episodeNumberFromLabel(subtitle)
-                if (parsed == episodeNumber) subtitle else "第${episodeNumber}集"
-            }
+            // 电影清晰度/语种、已是完整集名：原样使用
+            MacCmsPlayLayout.looksLikeMovieLineTitle(subtitle) -> subtitle
+            EPISODE_LABEL.matches(subtitle) -> subtitle
             EPISODE_RANGE.matches(subtitle) -> "第${episodeNumber}集"
-            else -> "第${episodeNumber}集 $subtitle"
+            // 「1」「01」「一集」等原始短名
+            else -> subtitle
         }
     }
 

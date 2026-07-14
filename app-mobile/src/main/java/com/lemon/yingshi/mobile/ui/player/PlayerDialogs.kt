@@ -19,6 +19,7 @@ import com.lemon.yingshi.mobile.databinding.DialogPlayerSkipBinding
 import com.lemon.yingshi.mobile.databinding.DialogPlayerSpeedBinding
 import com.lemon.yingshi.tv.data.local.database.entity.SkipConfigEntity
 import com.lemon.yingshi.tv.ui.player.PlayerViewModel
+import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import kotlin.math.max
 import kotlin.math.min
 
@@ -297,7 +298,7 @@ private class EpisodePickAdapter(
             selected: Boolean,
             onClick: (PlayerViewModel.EpisodeListItem) -> Unit
         ) {
-            view.text = "%02d".format(episode.episodeNumber)
+            view.text = EpisodeLabelFormatter.cellLabel(episode.episodeNumber, episode.title)
             if (selected) {
                 view.setBackgroundColor(view.context.getColor(R.color.primary_yellow))
                 view.setTextColor(view.context.getColor(R.color.background_dark))

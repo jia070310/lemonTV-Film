@@ -9,22 +9,50 @@ import org.junit.Test
 class MacCmsPlayLayoutTest {
 
     @Test
-    fun shouldShowEpisodePicker_falseForMultiLineMovie() {
+    fun shouldShowEpisodePicker_trueForMultiLineMovieWithTitles() {
         val sources = listOf(
             MacCmsPlaySource("线路1", listOf(MacCmsEpisodeUrl("正片", "http://a", 1))),
             MacCmsPlaySource("线路2", listOf(MacCmsEpisodeUrl("正片", "http://b", 1)))
         )
 
-        assertFalse(
+        assertTrue(
             MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 0)
         )
-        assertFalse(
+        assertTrue(
             MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.TV_SHOW, sources, sourceIndex = 0)
         )
     }
 
     @Test
-    fun shouldShowEpisodePicker_falseForMovieLinesInSingleSource() {
+    fun shouldShowEpisodePicker_trueForSingleMovieVersion() {
+        val sources = listOf(
+            MacCmsPlaySource(
+                name = "默认",
+                episodes = listOf(MacCmsEpisodeUrl("HD国语", "http://a", 1))
+            )
+        )
+
+        assertTrue(
+            MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 0)
+        )
+    }
+
+    @Test
+    fun shouldShowEpisodePicker_falseForBlankSingleTitle() {
+        val sources = listOf(
+            MacCmsPlaySource(
+                name = "默认",
+                episodes = listOf(MacCmsEpisodeUrl("", "http://a", 1))
+            )
+        )
+
+        assertFalse(
+            MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 0)
+        )
+    }
+
+    @Test
+    fun shouldShowEpisodePicker_trueForMovieLinesInSingleSource() {
         val sources = listOf(
             MacCmsPlaySource(
                 name = "默认",
@@ -36,8 +64,35 @@ class MacCmsPlayLayoutTest {
             )
         )
 
-        assertFalse(
+        assertTrue(
             MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 0)
+        )
+    }
+
+    @Test
+    fun shouldShowEpisodePicker_trueForMovieLanguageVariants() {
+        val sources = listOf(
+            MacCmsPlaySource(
+                name = "线路1",
+                episodes = listOf(
+                    MacCmsEpisodeUrl("HD中字", "http://a", 1),
+                    MacCmsEpisodeUrl("HD国语", "http://b", 2)
+                )
+            ),
+            MacCmsPlaySource(
+                name = "线路2",
+                episodes = listOf(
+                    MacCmsEpisodeUrl("粤语", "http://c", 1),
+                    MacCmsEpisodeUrl("国语", "http://d", 2)
+                )
+            )
+        )
+
+        assertTrue(
+            MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 0)
+        )
+        assertTrue(
+            MacCmsPlayLayout.shouldShowEpisodePicker(MediaType.MOVIE, sources, sourceIndex = 1)
         )
     }
 

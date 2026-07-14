@@ -152,7 +152,7 @@ class DetailActivity : AppCompatActivity() {
         }
         lastPlaySourceIndex = state.selectedPlaySourceIndex
 
-        val showEpisodes = media.type != MediaType.MOVIE && state.episodes.isNotEmpty()
+        val showEpisodes = state.episodes.isNotEmpty()
         binding.episodeSection.isVisible = showEpisodes
         if (showEpisodes) {
             if (media.id != lastEpisodeMediaId) {
@@ -165,16 +165,27 @@ class DetailActivity : AppCompatActivity() {
             if (selectedEpisodeId == null) {
                 selectedEpisodeId = currentEpisodes.firstOrNull()?.id
             }
-            val latestEpisode = max(
-                currentEpisodes.maxOfOrNull { it.episodeNumber } ?: 0,
-                currentEpisodes.size
+            val isMovieOptions = media.type == MediaType.MOVIE
+            binding.episodeSectionTitle.text = getString(
+                if (isMovieOptions) R.string.play_option_list else R.string.episode_list
             )
-            val totalCount = media.totalEpisodes ?: latestEpisode
-            binding.episodeCount.text = getString(
-                R.string.episode_count_format,
-                latestEpisode,
-                totalCount
-            )
+            if (isMovieOptions) {
+                binding.episodeCount.text = getString(
+                    R.string.play_option_count_format,
+                    currentEpisodes.size
+                )
+            } else {
+                val latestEpisode = max(
+                    currentEpisodes.maxOfOrNull { it.episodeNumber } ?: 0,
+                    currentEpisodes.size
+                )
+                val totalCount = media.totalEpisodes ?: latestEpisode
+                binding.episodeCount.text = getString(
+                    R.string.episode_count_format,
+                    latestEpisode,
+                    totalCount
+                )
+            }
             renderEpisodePage()
         } else {
             currentEpisodes = emptyList()
@@ -352,7 +363,7 @@ class DetailActivity : AppCompatActivity() {
     private fun playResume() {
         lifecycleScope.launch {
             val state = viewModel.uiState.value as? DetailUiState.Success
-            val showEpisodes = state?.media?.type != MediaType.MOVIE && currentEpisodes.isNotEmpty()
+            val showEpisodes = currentEpisodes.isNotEmpty()
             if (showEpisodes) {
                 val episodeId = selectedEpisodeId ?: currentEpisodes.firstOrNull()?.id
                 val episode = episodeId?.let { id ->
@@ -428,11 +439,23 @@ class DetailActivity : AppCompatActivity() {
                         .filter { it.mediaId == state.media.id && it.episodeId != null }
                         .associate { it.episodeId!! to it.status }
 
+                    // 当前线路仅 1 条地址：选完线路直接缓存，不再弹第二层
+                    if (episodes.size == 1) {
+                        enqueueEpisodesToOfflineCache(episodes, statusByEpisode)
+                        return@episodePicker
+                    }
+
                     val sourceName = sources.getOrNull(sourceIndex).orEmpty()
-                    val title = if (sourceName.isBlank()) {
-                        getString(R.string.offline_cache_picker_title)
-                    } else {
-                        getString(R.string.offline_cache_episode_picker_title_with_source, sourceName)
+                    val isMovieOptions = state.media.type == MediaType.MOVIE
+                    val title = when {
+                        sourceName.isBlank() && isMovieOptions ->
+                            getString(R.string.offline_cache_option_picker_title)
+                        sourceName.isBlank() ->
+                            getString(R.string.offline_cache_picker_title)
+                        isMovieOptions ->
+                            getString(R.string.offline_cache_option_picker_title_with_source, sourceName)
+                        else ->
+                            getString(R.string.offline_cache_episode_picker_title_with_source, sourceName)
                     }
 
                     OfflineCachePickerDialog.show(
@@ -526,7 +549,7 @@ class DetailActivity : AppCompatActivity() {
     }
 
     private suspend fun resolveDownloadTarget(state: DetailUiState.Success): DownloadTarget? {
-        val showEpisodes = state.media.type != MediaType.MOVIE && state.episodes.isNotEmpty()
+        val showEpisodes = state.episodes.isNotEmpty()
         return if (showEpisodes) {
             val episodeId = selectedEpisodeId ?: currentEpisodes.firstOrNull()?.id ?: return null
             val info = viewModel.getEpisodePlaybackInfo(episodeId) ?: return null
@@ -556,7 +579,7 @@ class DetailActivity : AppCompatActivity() {
     private fun refreshCacheButtonState() {
         lifecycleScope.launch {
             val state = viewModel.uiState.value as? DetailUiState.Success ?: return@launch
-            val showEpisodes = state.media.type != MediaType.MOVIE && currentEpisodes.isNotEmpty()
+            val showEpisodes = currentEpisodes.isNotEmpty()
             if (showEpisodes) {
                 binding.cacheLabel.text = getString(R.string.add_cache)
                 return@launch
@@ -589,7 +612,7 @@ class DetailActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_MEDIA_ID = "extra_media_id"
-        private const val EPISODE_COLUMNS = 4
+        private const val EPISODE_COLUMNS = 3
         private const val EPISODE_ROWS = 5
         private const val EPISODES_PER_PAGE = EPISODE_COLUMNS * EPISODE_ROWS
         private const val ACTORS_COLLAPSED_LINES = 2
@@ -662,7 +685,7 @@ private class EpisodeAdapter(
 
     class Holder(private val view: TextView) : RecyclerView.ViewHolder(view) {
         fun bind(episode: EpisodeItem, highlighted: Boolean, onClick: (EpisodeItem) -> Unit) {
-            view.text = "%02d".format(episode.episodeNumber)
+            view.text = EpisodeLabelFormatter.cellLabel(episode.episodeNumber, episode.title)
             if (highlighted) {
                 view.setBackgroundResource(R.drawable.bg_episode_cell_selected)
                 view.setTextColor(view.context.getColor(R.color.background_dark))

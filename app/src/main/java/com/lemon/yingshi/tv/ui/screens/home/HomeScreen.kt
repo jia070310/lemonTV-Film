@@ -1010,12 +1010,11 @@ private fun RecentCard(
         if (remaining > 0) "剩余 ${formatDuration(remaining)}" else "已看完"
     } else ""
     
-    // 构建标题：如果有剧集信息，只显示集数，不显示副标题
-    val displayTitle = if (historyItem.episodeNumber != null) {
-        "${historyItem.title} 第${historyItem.episodeNumber}集"
-    } else {
-        historyItem.title
-    }
+    // 优先展示接口保存的集名/版本名（HD国语、第01集 等）
+    val displayTitle = historyItem.episodeTitle
+        ?.takeIf { it.isNotBlank() }
+        ?.let { "${historyItem.title} $it" }
+        ?: historyItem.title
     
     val progressPercent = if (historyItem.duration > 0) {
         (historyItem.progress.toFloat() / historyItem.duration).coerceIn(0f, 1f)

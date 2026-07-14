@@ -1,6 +1,5 @@
 package com.lemon.yingshi.tv.domain.model
 
-import com.lemon.yingshi.tv.data.remote.model.MacCmsEpisodeUrl
 import com.lemon.yingshi.tv.data.remote.model.MacCmsPlaySource
 
 /** MacCMS 详情页 / 播放器共用的「选集 vs 线路」布局判定。 */
@@ -21,46 +20,29 @@ object MacCmsPlayLayout {
         return sources.all { it.episodes.size == 1 }
     }
 
-    /** 播放器选集列表是否应展示（电影多线路返回 false）。 */
+    /**
+     * 当前线路下是否需要展示「选集/版本」列表。
+     * 有播放项即展示（含电影仅一个版本如 HD国语），方便用户直观看到名称。
+     */
     fun shouldShowEpisodePicker(
-        rawType: MediaType,
+        @Suppress("UNUSED_PARAMETER") rawType: MediaType,
         sources: List<MacCmsPlaySource>,
         sourceIndex: Int
     ): Boolean {
         if (sources.isEmpty()) return false
-        if (isMultiLineMovie(sources)) return false
-
         val episodes = sources.getOrNull(sourceIndex)?.episodes.orEmpty()
-        if (episodes.size <= 1) return false
-
-        val displayType = resolveDisplayType(rawType, episodes.size)
-        if (!displayType.usesMacCmsEpisodeLayout()) return false
-
-        return episodesLookLikeSeries(episodes, displayType)
+        if (episodes.isEmpty()) return false
+        if (episodes.size > 1) return true
+        // 单条：有可读名称才展示（避免空白标题格子）
+        return episodes.first().title.isNotBlank()
     }
 
-    private fun episodesLookLikeSeries(episodes: List<MacCmsEpisodeUrl>, displayType: MediaType): Boolean {
-        if (displayType == MediaType.MOVIE) return false
-
-        val hasEpisodeMarker = episodes.any { episode ->
-            episode.title.contains('集') ||
-                EPISODE_NUMBER_PATTERN.containsMatchIn(episode.title)
-        }
-        if (hasEpisodeMarker) return true
-
-        val lineLikeCount = episodes.count { looksLikeMovieLineTitle(it.title) }
-        if (lineLikeCount >= (episodes.size + 1) / 2) return false
-
-        return displayType.usesMacCmsEpisodeLayout()
-    }
-
-    private fun looksLikeMovieLineTitle(title: String): Boolean {
+    /** 播放项标题是否像电影清晰度/语种版本（相对剧集序号）。 */
+    fun looksLikeMovieLineTitle(title: String): Boolean {
         val normalized = title.trim()
         if (normalized.isBlank()) return true
         return MOVIE_LINE_KEYWORDS.any { normalized.contains(it, ignoreCase = true) }
     }
-
-    private val EPISODE_NUMBER_PATTERN = Regex("""\b[Ee]\d+\b""")
 
     private val MOVIE_LINE_KEYWORDS = listOf(
         "正片", "预告", "片花", "花絮", "样本", "HD", "TC", "4K", "1080", "720",

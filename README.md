@@ -4,8 +4,8 @@
 
 | 平台 | 包名 | 当前版本 | versionCode |
 |------|------|----------|-------------|
-| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.11** | **10011** |
-| 手机 | `com.lemon.yingshi.mobile` | **v1.0.5** | **10005** |
+| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.12** | **10012** |
+| 手机 | `com.lemon.yingshi.mobile` | **v1.0.6** | **10006** |
 
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
@@ -428,13 +428,15 @@ Release 签名配置见 `app/build.gradle.kts` 与 `app-mobile/build.gradle.kts`
 
 | 平台 | Release 标签 | APK 文件名 |
 |------|--------------|------------|
-| TV | `v1.0.11` | `LomenTV-release-v1.0.11.apk` 或含 `tv` |
-| 手机 | `mobile-v1.0.5` | `LomenMobile-release-v1.0.5.apk`（文件名需含 `mobile`） |
+| TV | `v1.0.12` | `LomenTV-release-v1.0.12.apk` 或含 `tv` |
+| 手机 | `mobile-v1.0.6` | `LomenMobile-release-v1.0.6.apk`（文件名需含 `mobile`） |
 
 ## 版本发布
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| [v1.0.12](RELEASES/v1.0.12.md) | 2026-07-14 | TV：播放版本/集名按接口展示，电影单版本可见，历史标签修正 |
+| [mobile-v1.0.6](RELEASES/mobile-v1.0.6.md) | 2026-07-14 | 手机：播放版本/集名按接口展示，缓存选择与电影版本显示修正 |
 | [v1.0.11](RELEASES/v1.0.11.md) | 2026-07-14 | TV：筛选 type_extend / 准确度、二级分类与遥控焦点、资源管理输入体验 |
 | [mobile-v1.0.5](RELEASES/mobile-v1.0.5.md) | 2026-07-14 | 手机：筛选同步 type_extend / 准确度、二级分类、资源设置按钮样式 |
 | [v1.0.10](RELEASES/v1.0.10.md) | 2026-07-14 | TV：预缓存进度条修复、详情页自适应与展开收起 |

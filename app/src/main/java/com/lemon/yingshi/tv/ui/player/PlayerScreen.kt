@@ -95,6 +95,7 @@ import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lemon.yingshi.tv.domain.service.PlayerState
+import com.lemon.yingshi.tv.utils.EpisodeLabelFormatter
 import com.lemon.yingshi.tv.ui.theme.BackgroundDark
 import com.lemon.yingshi.tv.ui.theme.DialogUiTokens
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
@@ -860,7 +861,7 @@ fun PlayerScreen(
                         showEpisodeListDialog = true
                         lastInteractionTime = System.currentTimeMillis()
                     },
-                    hasEpisodes = episodeList.size > 1,
+                    hasEpisodes = episodeList.isNotEmpty(),
                     onShowSkipConfigDialog = { showSkipConfigDialog = true }
                 )
             }
@@ -879,7 +880,7 @@ fun PlayerScreen(
         }
 
         // 选集窗口（Dialog 隔离焦点，避免光标跑到播放器控件）
-        if (showEpisodeListDialog && episodeList.size > 1) {
+        if (showEpisodeListDialog && episodeList.isNotEmpty()) {
             EpisodeListPanel(
                 episodes = episodeList,
                 currentEpisodeId = sessionEpisodeId,
@@ -890,11 +891,11 @@ fun PlayerScreen(
                         viewModel.saveWatchProgressBeforeEpisodeSelectionSwitch()
                         val resumePositionMs = viewModel.getResumeStartPositionForEpisodeSelection(episode.id)
                         val resolvedUrl = viewModel.resolvePlaybackUrl(episode.path ?: "")
-                        val newEpisodeTitle = if (episode.title.isNotEmpty()) {
-                            "第${episode.episodeNumber}集 ${episode.title}"
-                        } else {
-                            "第${episode.episodeNumber}集"
-                        }
+                        val newEpisodeTitle = EpisodeLabelFormatter.build(
+                            episode.episodeNumber,
+                            episode.title,
+                            currentTitle
+                        )
                         viewModel.setMediaInfo(mediaId ?: "", episode.id)
                         sessionEpisodeId = episode.id
                         currentEpisodeTitle = newEpisodeTitle
@@ -1691,11 +1692,11 @@ private fun EpisodeListPanel(
     val currentIndex = sortedEpisodes.indexOfFirst { it.id == currentEpisodeId }
         .let { if (it >= 0) it else 0 }
 
-    val gridColumns = 4
-    val episodesPerPage = 20
+    val gridColumns = 3
+    val episodesPerPage = 18
     val gridSpacing = 8.dp
-    val buttonWidth = 72.dp
-    val buttonHeight = 40.dp
+    val buttonWidth = 96.dp
+    val buttonHeight = 44.dp
     val panelPadding = 20.dp
     val totalPages = max(1, (sortedEpisodes.size + episodesPerPage - 1) / episodesPerPage)
     val initialPage = (currentIndex / episodesPerPage).coerceIn(0, totalPages - 1)
@@ -1911,7 +1912,10 @@ private fun EpisodeListPanel(
                                 }
 
                                 EpisodeListPageButton(
-                                    episodeNumber = episode.episodeNumber,
+                                    label = EpisodeLabelFormatter.cellLabel(
+                                        episode.episodeNumber,
+                                        episode.title
+                                    ),
                                     isSelected = isSelected,
                                     buttonWidth = buttonWidth,
                                     buttonHeight = buttonHeight,
@@ -1951,7 +1955,7 @@ private fun EpisodeListPanel(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun EpisodeListPageButton(
-    episodeNumber: Int,
+    label: String,
     isSelected: Boolean,
     buttonWidth: Dp,
     buttonHeight: Dp,
@@ -1982,11 +1986,13 @@ private fun EpisodeListPageButton(
             .mousePrimaryClick { onClick() }
     ) {
         Text(
-            text = episodeNumber.toString(),
-            style = MaterialTheme.typography.bodyLarge.copy(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal
             ),
-            color = TvSelectableTokens.contentColor(isFocused)
+            color = TvSelectableTokens.contentColor(isFocused),
+            maxLines = 2,
+            softWrap = true
         )
     }
 }
