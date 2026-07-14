@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +46,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -161,7 +164,7 @@ fun MacCmsConfigSection(
                     placeholder = "https://your-maccms.com",
                     modifier = Modifier.fillMaxWidth(),
                     focusRequester = contentFocusRequester,
-                    downFocusRequester = saveButtonFocusRequester,
+                    downFocusRequester = testButtonFocusRequester,
                     onMoveLeft = { focusManager.moveFocus(FocusDirection.Left) }
                 )
 
@@ -171,8 +174,10 @@ fun MacCmsConfigSection(
                     horizontalArrangement = Arrangement.spacedBy(16.dp.scale(s)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 左侧：测试（先测后存）；非黄底
                     Button(
-                        onClick = { viewModel.saveServerUrl(inputUrl) },
+                        onClick = { viewModel.testConnection(inputUrl) },
+                        enabled = !isTesting,
                         colors = ButtonDefaults.colors(
                             containerColor = SurfaceDark,
                             focusedContainerColor = PrimaryYellow,
@@ -180,9 +185,9 @@ fun MacCmsConfigSection(
                             focusedContentColor = BackgroundDark
                         ),
                         modifier = Modifier
-                            .focusRequester(saveButtonFocusRequester)
+                            .focusRequester(testButtonFocusRequester)
                             .focusProperties {
-                                right = testButtonFocusRequester
+                                right = saveButtonFocusRequester
                             }
                             .onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -196,24 +201,24 @@ fun MacCmsConfigSection(
                                 }
                             }
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("保存配置")
+                        Text(if (isTesting) "测试中..." else "测试连通性")
                     }
 
+                    // 右侧：保存；黄底主操作
                     Button(
-                        onClick = { viewModel.testConnection(inputUrl) },
-                        enabled = !isTesting,
+                        onClick = { viewModel.saveServerUrl(inputUrl) },
                         colors = ButtonDefaults.colors(
-                            containerColor = SurfaceDark,
+                            containerColor = PrimaryYellow,
                             focusedContainerColor = PrimaryYellow,
-                            contentColor = TextPrimary,
+                            contentColor = BackgroundDark,
                             focusedContentColor = BackgroundDark
                         ),
                         modifier = Modifier
-                            .focusRequester(testButtonFocusRequester)
+                            .focusRequester(saveButtonFocusRequester)
                             .focusProperties {
-                                left = saveButtonFocusRequester
+                                left = testButtonFocusRequester
                             }
                             .onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -223,9 +228,9 @@ fun MacCmsConfigSection(
                                 }
                             }
                     ) {
-                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isTesting) "测试中..." else "测试连通性")
+                        Text("保存配置")
                     }
                 }
 
@@ -341,30 +346,79 @@ private fun MacCmsUrlInput(
 ) {
     val s = LocalCompactUiScale.current
     var isFocused by remember { mutableStateOf(false) }
+    // 聚焦不自动弹键盘；首次确定弹 IME，完成输入后再确定落到测试按钮
+    var imeOpenedByConfirm by remember { mutableStateOf(false) }
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(value, TextRange(value.length)))
+    }
+    LaunchedEffect(value) {
+        if (value != textFieldValue.text) {
+            textFieldValue = TextFieldValue(value, TextRange(value.length))
+        }
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
     val inputShape = RoundedCornerShape(8.dp.scale(s))
 
-    fun moveFocusToDownTarget(): Boolean {
+    fun hideImeAndMoveToTest(): Boolean {
         keyboardController?.hide()
+        imeOpenedByConfirm = false
         return downFocusRequester.tryRequestFocus()
+    }
+
+    fun onConfirmWhileFocused(): Boolean {
+        return if (!imeOpenedByConfirm) {
+            keyboardController?.show()
+            imeOpenedByConfirm = true
+            true
+        } else {
+            hideImeAndMoveToTest()
+        }
+    }
+
+    fun moveCursorBy(delta: Int): Boolean {
+        val sel = textFieldValue.selection
+        val collapsed = if (sel.collapsed) {
+            sel.start
+        } else if (delta < 0) {
+            sel.min
+        } else {
+            sel.max
+        }
+        val next = (collapsed + delta).coerceIn(0, textFieldValue.text.length)
+        if (next == collapsed && sel.collapsed) return false
+        textFieldValue = textFieldValue.copy(selection = TextRange(next))
+        return true
     }
 
     Box(
         modifier = modifier.onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (event.key) {
-                Key.DirectionDown, Key.Enter, Key.DirectionCenter, Key.Tab -> moveFocusToDownTarget()
+                Key.Enter, Key.DirectionCenter -> onConfirmWhileFocused()
+                Key.DirectionDown, Key.Tab -> hideImeAndMoveToTest()
                 Key.DirectionLeft -> {
-                    keyboardController?.hide()
-                    onMoveLeft()
+                    // 行内先移光标；仅在行首才跳出到左侧栏
+                    if (moveCursorBy(-1)) {
+                        true
+                    } else {
+                        keyboardController?.hide()
+                        imeOpenedByConfirm = false
+                        onMoveLeft()
+                    }
                 }
+                Key.DirectionRight -> moveCursorBy(1)
                 else -> false
             }
         }
     ) {
         BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                textFieldValue = newValue
+                if (newValue.text != value) {
+                    onValueChange(newValue.text)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp.scale(s))
@@ -378,8 +432,9 @@ private fun MacCmsUrlInput(
                 .focusRequester(focusRequester)
                 .onFocusChanged { focusState ->
                     isFocused = focusState.isFocused
-                    if (focusState.isFocused) {
-                        keyboardController?.show()
+                    if (!focusState.isFocused) {
+                        keyboardController?.hide()
+                        imeOpenedByConfirm = false
                     }
                 },
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary),
@@ -387,7 +442,7 @@ private fun MacCmsUrlInput(
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
-                onDone = { moveFocusToDownTarget() }
+                onDone = { hideImeAndMoveToTest() }
             ),
             decorationBox = { innerTextField ->
                 Box(
@@ -396,7 +451,7 @@ private fun MacCmsUrlInput(
                         .padding(horizontal = 16.dp.scale(s)),
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (value.isEmpty()) {
+                    if (textFieldValue.text.isEmpty()) {
                         Text(
                             text = placeholder,
                             style = MaterialTheme.typography.bodyLarge,

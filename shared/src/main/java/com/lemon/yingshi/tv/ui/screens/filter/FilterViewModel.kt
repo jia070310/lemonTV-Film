@@ -136,6 +136,24 @@ class FilterViewModel @Inject constructor(
     }
 
     fun selectSecondaryType(typeId: Int) {
+        // typeId <= 0：在当前一级下选「全部」（右侧分类芯片用）
+        if (typeId <= 0) {
+            val state = _uiState.value
+            if (state.selectedTypeId == 0) return
+            _uiState.update {
+                it.copy(
+                    expandedNavTypeId = it.selectedNavTypeId,
+                    selectedTypeId = 0,
+                    selectedArea = "",
+                    selectedLang = "",
+                    selectedYear = "",
+                    selectedPlot = "",
+                    selectedSort = MacCmsSortOption.LATEST
+                )
+            }
+            loadResults(reset = true)
+            return
+        }
         val tax = taxonomy ?: return
         val nav = tax.navCategoryForTypeId(typeId) ?: return
         if (_uiState.value.selectedNavTypeId == nav.typeId && _uiState.value.selectedTypeId == typeId) return
@@ -507,7 +525,19 @@ data class FilterUiState(
     val error: String? = null
 ) {
     private val filterOptions: MacCmsFilterSupport.FilterOptionRow
-        get() = MacCmsFilterSupport.filterOptionsFor(selectedNavLabel)
+        get() {
+            val nav = treeCategories.find { it.category.typeId == selectedNavTypeId }
+            val childExtend = if (selectedTypeId > 0) {
+                nav?.children?.find { it.typeId == selectedTypeId }?.extend
+            } else {
+                null
+            }
+            return MacCmsFilterSupport.filterOptionsFor(
+                categoryLabel = selectedNavLabel,
+                extend = nav?.category?.extend,
+                childExtend = childExtend
+            )
+        }
 
     val plotOptions: List<String> get() = filterOptions.plot
     val areaOptions: List<String> get() = filterOptions.area
@@ -515,12 +545,25 @@ data class FilterUiState(
     val yearOptions: List<String> get() = filterOptions.year
     val sortOptions: List<MacCmsSortOption> get() = filterOptions.sort
 
+    /** 当前一级下的二级分类；空则右侧不展示「分类」行 */
+    val secondaryChildren: List<MacCmsTaxonomy.FilterTreeChild>
+        get() = treeCategories
+            .find { it.category.typeId == selectedNavTypeId }
+            ?.children
+            .orEmpty()
+
+    val selectedSecondaryLabel: String
+        get() = if (selectedTypeId > 0) {
+            secondaryChildren.find { it.typeId == selectedTypeId }?.label.orEmpty()
+        } else {
+            ""
+        }
+
     val selectedCategoryName: String
         get() = if (selectedTypeId > 0) {
-            treeCategories
-                .flatMap { it.children }
-                .find { it.typeId == selectedTypeId }
-                ?.label ?: "分类$selectedTypeId"
+            secondaryChildren.find { it.typeId == selectedTypeId }?.label
+                ?: treeCategories.flatMap { it.children }.find { it.typeId == selectedTypeId }?.label
+                ?: "分类$selectedTypeId"
         } else {
             "$selectedNavLabel · 全部"
         }

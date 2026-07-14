@@ -51,6 +51,7 @@ class FilterCriteriaFragment : Fragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collect { state ->
                     renderCategoryChips(state.treeCategories.map { it.category }, state)
+                    renderSecondaryTypeChips(state)
                     renderOptionChips(binding.plotChipGroup, listOf("全部") + state.plotOptions, state.selectedPlot) {
                         viewModel.selectPlot(if (it == "全部") "" else it)
                     }
@@ -87,6 +88,38 @@ class FilterCriteriaFragment : Fragment() {
             )
             params.marginEnd = resources.getDimensionPixelSize(R.dimen.section_spacing) / 2
             binding.categoryContainer.addView(chip, params)
+        }
+    }
+
+    private fun renderSecondaryTypeChips(state: com.lemon.yingshi.tv.ui.screens.filter.FilterUiState) {
+        val children = state.secondaryChildren
+        val show = children.isNotEmpty()
+        binding.secondaryTypeLabel.isVisible = show
+        binding.secondaryTypeScroll.isVisible = show
+        binding.secondaryTypeContainer.removeAllViews()
+        if (!show) return
+
+        val inflater = LayoutInflater.from(requireContext())
+        val marginEnd = resources.getDimensionPixelSize(R.dimen.section_spacing) / 2
+
+        fun addChip(label: String, selected: Boolean, onClick: () -> Unit) {
+            val chip = inflater.inflate(R.layout.view_filter_chip, binding.secondaryTypeContainer, false) as TextView
+            chip.text = label
+            chip.isSelected = selected
+            chip.setOnClickListener { onClick() }
+            val params = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            params.marginEnd = marginEnd
+            binding.secondaryTypeContainer.addView(chip, params)
+        }
+
+        addChip("全部", state.selectedTypeId == 0) { viewModel.selectSecondaryType(0) }
+        children.forEach { child ->
+            addChip(child.label, state.selectedTypeId == child.typeId) {
+                viewModel.selectSecondaryType(child.typeId)
+            }
         }
     }
 

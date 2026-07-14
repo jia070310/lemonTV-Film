@@ -104,7 +104,7 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/save_button"
+                    android:id="@+id/test_button"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
@@ -112,28 +112,28 @@
                     android:layout_weight="1"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:text="@string/settings_save_config"
+                    android:text="@string/settings_test_connectivity"
                     android:textColor="@color/text_primary"
                     app:cornerRadius="22dp"
-                    app:icon="@drawable/ic_settings_save"
+                    app:icon="@drawable/ic_settings_link"
                     app:iconGravity="textStart"
                     app:iconPadding="6dp"
                     app:iconTint="@color/text_primary"
                     app:strokeColor="@color/text_muted" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/test_button"
+                    android:id="@+id/save_button"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:text="@string/settings_test_connectivity"
+                    android:text="@string/settings_save_config"
                     android:textColor="@color/background_dark"
                     app:backgroundTint="@color/primary_yellow"
                     app:cornerRadius="22dp"
-                    app:icon="@drawable/ic_settings_link"
+                    app:icon="@drawable/ic_settings_save"
                     app:iconGravity="textStart"
                     app:iconPadding="6dp"
                     app:iconTint="@color/background_dark" />

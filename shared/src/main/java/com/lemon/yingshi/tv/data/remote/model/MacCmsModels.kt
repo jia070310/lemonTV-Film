@@ -1,5 +1,8 @@
 package com.lemon.yingshi.tv.data.remote.model
 
+import com.google.gson.Gson
+import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 
 data class MacCmsListResponse(
@@ -14,6 +17,72 @@ data class MacCmsListResponse(
     val categories: List<MacCmsTypeItem> = emptyList()
 )
 
+/**
+ * MacCMS 分类扩展筛选项（后台 type_extend）。
+ * 接口可能返回 JSON 对象，也可能返回 JSON 字符串（get_list 常见）。
+ */
+data class MacCmsTypeExtend(
+    @SerializedName("class")
+    val plot: String? = null,
+    @SerializedName("area")
+    val area: String? = null,
+    @SerializedName("lang")
+    val lang: String? = null,
+    @SerializedName("year")
+    val year: String? = null,
+    @SerializedName("state")
+    val state: String? = null,
+    @SerializedName("version")
+    val version: String? = null,
+    @SerializedName("star")
+    val star: String? = null,
+    @SerializedName("director")
+    val director: String? = null
+) {
+    fun hasFilterOptions(): Boolean =
+        !plot.isNullOrBlank() ||
+            !area.isNullOrBlank() ||
+            !lang.isNullOrBlank() ||
+            !year.isNullOrBlank()
+
+    fun splitPlot(): List<String> = splitCsv(plot)
+    fun splitArea(): List<String> = splitCsv(area)
+    fun splitLang(): List<String> = splitCsv(lang)
+    fun splitYear(): List<String> = splitCsv(year)
+    fun splitState(): List<String> = splitCsv(state)
+    fun splitVersion(): List<String> = splitCsv(version)
+
+    companion object {
+        private val gson = Gson()
+
+        fun parse(raw: JsonElement?): MacCmsTypeExtend? {
+            if (raw == null || raw.isJsonNull) return null
+            return runCatching {
+                when {
+                    raw.isJsonObject -> gson.fromJson(raw, MacCmsTypeExtend::class.java)
+                    raw.isJsonPrimitive && raw.asJsonPrimitive.isString -> {
+                        val text = raw.asString.trim()
+                        if (text.isEmpty() || text == "[]" || text == "{}") return null
+                        val element = JsonParser.parseString(text)
+                        if (element.isJsonObject) {
+                            gson.fromJson(element, MacCmsTypeExtend::class.java)
+                        } else {
+                            null
+                        }
+                    }
+                    else -> null
+                }
+            }.getOrNull()?.takeIf { it.hasFilterOptions() || !it.state.isNullOrBlank() || !it.version.isNullOrBlank() }
+        }
+
+        fun splitCsv(value: String?): List<String> =
+            value.orEmpty()
+                .split(',', '，', '|', '/', '、')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+    }
+}
+
 data class MacCmsTypeItem(
     @SerializedName("type_id")
     val typeId: Int = 0,
@@ -22,8 +91,14 @@ data class MacCmsTypeItem(
     @SerializedName("type_pid")
     val typePid: Int = 0,
     @SerializedName("type_sort")
-    val typeSort: Int = 0
-)
+    val typeSort: Int = 0,
+    /** 原始 type_extend（对象或字符串），用 [resolvedExtend] 解析 */
+    @SerializedName("type_extend")
+    val typeExtendRaw: JsonElement? = null
+) {
+    val resolvedExtend: MacCmsTypeExtend?
+        get() = MacCmsTypeExtend.parse(typeExtendRaw)
+}
 
 /** MacCMS /api.php/type/get_list/ 返回的分类树节点 */
 data class MacCmsTypeTreeItem(
@@ -35,9 +110,14 @@ data class MacCmsTypeTreeItem(
     val typePid: Int = 0,
     @SerializedName("type_sort")
     val typeSort: Int = 0,
+    @SerializedName("type_extend")
+    val typeExtendRaw: JsonElement? = null,
     @SerializedName("child")
     val children: List<MacCmsTypeTreeItem>? = null
-)
+) {
+    val resolvedExtend: MacCmsTypeExtend?
+        get() = MacCmsTypeExtend.parse(typeExtendRaw)
+}
 
 data class MacCmsTypeListInfo(
     val total: Int = 0,

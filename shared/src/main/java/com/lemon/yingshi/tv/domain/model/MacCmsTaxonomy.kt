@@ -1,5 +1,6 @@
 package com.lemon.yingshi.tv.domain.model
 
+import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeExtend
 import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeItem
 import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeTreeItem
 
@@ -7,12 +8,15 @@ import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeTreeItem
 data class MacCmsNavCategory(
     val typeId: Int,
     val label: String,
-    val children: List<MacCmsTypeChild> = emptyList()
+    val children: List<MacCmsTypeChild> = emptyList(),
+    /** 后台分类扩展：类型/地区/语言/年代等 */
+    val extend: MacCmsTypeExtend? = null
 )
 
 data class MacCmsTypeChild(
     val typeId: Int,
-    val label: String
+    val label: String,
+    val extend: MacCmsTypeExtend? = null
 )
 
 sealed class MacCmsHomeSectionRef {
@@ -171,7 +175,11 @@ class MacCmsTaxonomy private constructor(
     fun filterCategories(): List<Pair<Int, String>> =
         allSecondaryTypeIds().map { it to secondaryLabel(it) }
 
-    data class FilterTreeChild(val typeId: Int, val label: String)
+    data class FilterTreeChild(
+        val typeId: Int,
+        val label: String,
+        val extend: MacCmsTypeExtend? = null
+    )
 
     data class FilterTreeCategory(
         val category: MacCmsNavCategory,
@@ -183,7 +191,11 @@ class MacCmsTaxonomy private constructor(
             FilterTreeCategory(
                 category = nav,
                 children = nav.children.map { child ->
-                    FilterTreeChild(typeId = child.typeId, label = child.label)
+                    FilterTreeChild(
+                        typeId = child.typeId,
+                        label = child.label,
+                        extend = child.extend
+                    )
                 }
             )
         }
@@ -202,6 +214,18 @@ class MacCmsTaxonomy private constructor(
 
     fun navCategoryByTypeId(typeId: Int): MacCmsNavCategory? =
         topCategories.find { it.typeId == typeId }
+
+    /** 当前筛选上下文下的扩展配置：二级优先，否则一级 */
+    fun resolveTypeExtend(navTypeId: Int, selectedTypeId: Int): MacCmsTypeExtend? {
+        val nav = navCategoryByTypeId(navTypeId) ?: return null
+        if (selectedTypeId > 0) {
+            val child = nav.children.find { it.typeId == selectedTypeId }
+            if (child?.extend?.hasFilterOptions() == true) {
+                return child.extend
+            }
+        }
+        return nav.extend?.takeIf { it.hasFilterOptions() }
+    }
 
     companion object {
         private const val MAIN_PREFIX = "main:"
@@ -224,6 +248,7 @@ class MacCmsTaxonomy private constructor(
                     MacCmsNavCategory(
                         typeId = row.typeId,
                         label = row.typeName,
+                        extend = row.resolvedExtend,
                         children = (row.children ?: emptyList()).withIndex()
                             .filter { (_, child) -> child.typeId > 0 }
                             .sortedWith(
@@ -231,7 +256,11 @@ class MacCmsTaxonomy private constructor(
                                     .thenBy { it.index }
                             )
                             .map { (_, child) ->
-                                MacCmsTypeChild(typeId = child.typeId, label = child.typeName)
+                                MacCmsTypeChild(
+                                    typeId = child.typeId,
+                                    label = child.typeName,
+                                    extend = child.resolvedExtend
+                                )
                             }
                     )
                 }
@@ -266,8 +295,15 @@ class MacCmsTaxonomy private constructor(
                 MacCmsNavCategory(
                     typeId = root.typeId,
                     label = root.typeName,
+                    extend = root.resolvedExtend,
                     children = sortTypes(valid.filter { it.typePid == root.typeId })
-                        .map { child -> MacCmsTypeChild(typeId = child.typeId, label = child.typeName) }
+                        .map { child ->
+                            MacCmsTypeChild(
+                                typeId = child.typeId,
+                                label = child.typeName,
+                                extend = child.resolvedExtend
+                            )
+                        }
                 )
             }
             return MacCmsTaxonomy(topCategories, SOURCE_PROVIDE)

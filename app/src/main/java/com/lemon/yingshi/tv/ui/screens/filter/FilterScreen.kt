@@ -5,6 +5,7 @@ package com.lemon.yingshi.tv.ui.screens.filter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -37,12 +42,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -57,7 +64,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.foundation.PivotOffsets
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyListState
-import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
 import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.tv.material3.Border
@@ -92,10 +98,43 @@ import com.lemon.yingshi.tv.ui.theme.TvSelectableTokens
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val SIDEBAR_WIDTH = 168.dp
 private const val FILTER_COLUMNS = 5
 private const val LONG_PRESS_MS = 500L
+
+/** 一行筛选芯片的焦点与屏幕水平坐标，用于按「视觉列」上下平移 */
+@Stable
+private class FilterChipRowFocusState(
+    size: Int,
+    firstRequester: FocusRequester? = null
+) {
+    val requesters: List<FocusRequester> = List(size) { index ->
+        if (index == 0 && firstRequester != null) firstRequester else FocusRequester()
+    }
+    private val centerXs = FloatArray(size) { Float.NaN }
+
+    fun updateCenterX(index: Int, centerX: Float) {
+        if (index in centerXs.indices) centerXs[index] = centerX
+    }
+
+    fun nearestRequester(fromCenterX: Float): FocusRequester? {
+        if (requesters.isEmpty()) return null
+        var bestIndex = 0
+        var bestDist = Float.MAX_VALUE
+        for (i in centerXs.indices) {
+            val x = centerXs[i]
+            if (x.isNaN()) continue
+            val dist = abs(x - fromCenterX)
+            if (dist < bestDist) {
+                bestDist = dist
+                bestIndex = i
+            }
+        }
+        return requesters[bestIndex]
+    }
+}
 
 private fun FocusRequester.tryRequestFocus(): Boolean =
     runCatching {
@@ -132,6 +171,7 @@ fun FilterScreen(
     val uiState by viewModel.uiState.collectAsState()
     val sidebarFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
+    val backFocusRequester = remember { FocusRequester() }
     val firstChipFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
     val loadMoreFocusRequester = remember { FocusRequester() }
@@ -178,6 +218,7 @@ fun FilterScreen(
                     FilterScrollContent(
                         uiState = uiState,
                         onNavigateBack = onNavigateBack,
+                        onTypeSelected = viewModel::selectSecondaryType,
                         onAreaSelected = viewModel::selectArea,
                         onLangSelected = viewModel::selectLang,
                         onYearSelected = viewModel::selectYear,
@@ -191,6 +232,7 @@ fun FilterScreen(
                         onRetry = viewModel::retry,
                         sidebarFocusRequester = sidebarFocusRequester,
                         contentFocusRequester = contentFocusRequester,
+                        backFocusRequester = backFocusRequester,
                         firstChipFocusRequester = firstChipFocusRequester,
                         firstCardFocusRequester = firstCardFocusRequester,
                         loadMoreFocusRequester = loadMoreFocusRequester,
@@ -373,6 +415,7 @@ private fun FilterSidebarItem(
 private fun FilterScrollContent(
     uiState: FilterUiState,
     onNavigateBack: () -> Unit,
+    onTypeSelected: (Int) -> Unit,
     onAreaSelected: (String) -> Unit,
     onLangSelected: (String) -> Unit,
     onYearSelected: (String) -> Unit,
@@ -383,6 +426,7 @@ private fun FilterScrollContent(
     onRetry: () -> Unit,
     sidebarFocusRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
+    backFocusRequester: FocusRequester,
     firstChipFocusRequester: FocusRequester,
     firstCardFocusRequester: FocusRequester,
     loadMoreFocusRequester: FocusRequester,
@@ -458,6 +502,8 @@ private fun FilterScrollContent(
                 currentPage = uiState.currentPage,
                 totalPages = uiState.totalPages,
                 onNavigateBack = onNavigateBack,
+                backFocusRequester = backFocusRequester,
+                firstChipFocusRequester = firstChipFocusRequester,
                 sidebarFocusRequester = sidebarFocusRequester
             )
         }
@@ -465,12 +511,15 @@ private fun FilterScrollContent(
         item(key = "chips") {
             FilterChipPanel(
                 uiState = uiState,
+                onTypeSelected = onTypeSelected,
                 onAreaSelected = onAreaSelected,
                 onLangSelected = onLangSelected,
                 onYearSelected = onYearSelected,
                 onPlotSelected = onPlotSelected,
                 onSortSelected = onSortSelected,
+                backFocusRequester = backFocusRequester,
                 firstChipFocusRequester = firstChipFocusRequester,
+                firstCardFocusRequester = firstCardFocusRequester,
                 sidebarFocusRequester = sidebarFocusRequester
             )
         }
@@ -830,6 +879,8 @@ private fun FilterTopBar(
     currentPage: Int,
     totalPages: Int,
     onNavigateBack: () -> Unit,
+    backFocusRequester: FocusRequester,
+    firstChipFocusRequester: FocusRequester,
     sidebarFocusRequester: FocusRequester
 ) {
     Row(
@@ -847,7 +898,11 @@ private fun FilterTopBar(
                 focusedContentColor = BackgroundDark
             ),
             modifier = Modifier
-                .focusProperties { left = sidebarFocusRequester }
+                .focusRequester(backFocusRequester)
+                .focusProperties {
+                    left = sidebarFocusRequester
+                    down = firstChipFocusRequester
+                }
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "返回")
         }
@@ -893,54 +948,145 @@ private fun FilterTopBar(
 @Composable
 private fun FilterChipPanel(
     uiState: FilterUiState,
+    onTypeSelected: (Int) -> Unit,
     onAreaSelected: (String) -> Unit,
     onLangSelected: (String) -> Unit,
     onYearSelected: (String) -> Unit,
     onPlotSelected: (String) -> Unit,
     onSortSelected: (MacCmsSortOption) -> Unit,
+    backFocusRequester: FocusRequester,
     firstChipFocusRequester: FocusRequester,
+    firstCardFocusRequester: FocusRequester,
     sidebarFocusRequester: FocusRequester
 ) {
+    val secondaryChildren = uiState.secondaryChildren
+    val showTypeRow = secondaryChildren.isNotEmpty()
+    val typeOptions = if (showTypeRow) {
+        listOf("") + secondaryChildren.map { it.label }
+    } else {
+        emptyList()
+    }
+    val plotOptions = listOf("") + uiState.plotOptions
+    val areaOptions = listOf("") + uiState.areaOptions
+    val langOptions = listOf("") + uiState.langOptions
+    val yearOptions = listOf("") + uiState.yearOptions
+    val sortOptions = uiState.sortOptions.map { it.label }
+
+    // 按窗口水平坐标找「视觉正下方/正上方」芯片，避免年份横滑后按列表下标错位
+    val typeRow: FilterChipRowFocusState? = remember(typeOptions) {
+        if (typeOptions.isEmpty()) {
+            null
+        } else {
+            FilterChipRowFocusState(typeOptions.size, firstChipFocusRequester)
+        }
+    }
+    val plotRow = remember(plotOptions.size, showTypeRow) {
+        FilterChipRowFocusState(
+            plotOptions.size,
+            if (!showTypeRow) firstChipFocusRequester else null
+        )
+    }
+    val areaRow = remember(areaOptions.size) { FilterChipRowFocusState(areaOptions.size) }
+    val langRow = remember(langOptions.size) { FilterChipRowFocusState(langOptions.size) }
+    val yearRow = remember(yearOptions.size) { FilterChipRowFocusState(yearOptions.size) }
+    val sortRow = remember(sortOptions.size) { FilterChipRowFocusState(sortOptions.size) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 32.dp)
     ) {
+        if (typeRow != null) {
+            FilterChipRow(
+                label = "分类",
+                options = typeOptions,
+                selected = uiState.selectedSecondaryLabel,
+                onSelected = { label ->
+                    if (label.isBlank()) {
+                        onTypeSelected(0)
+                    } else {
+                        secondaryChildren.find { it.label == label }?.let { onTypeSelected(it.typeId) }
+                    }
+                },
+                rowFocus = typeRow,
+                upRow = null,
+                downRow = plotRow,
+                sidebarFocusRequester = sidebarFocusRequester,
+                upFallbackRequester = backFocusRequester
+            )
+        }
         FilterChipRow(
             label = "剧情",
-            options = listOf("") + uiState.plotOptions,
+            options = plotOptions,
             selected = uiState.selectedPlot,
             onSelected = onPlotSelected,
-            firstChipFocusRequester = firstChipFocusRequester,
-            sidebarFocusRequester = sidebarFocusRequester
+            rowFocus = plotRow,
+            upRow = typeRow,
+            downRow = areaRow,
+            sidebarFocusRequester = if (typeRow == null) sidebarFocusRequester else null,
+            upFallbackRequester = if (typeRow == null) backFocusRequester else null
         )
-        FilterChipRow("地区", listOf("") + uiState.areaOptions, uiState.selectedArea, onAreaSelected)
-        FilterChipRow("语言", listOf("") + uiState.langOptions, uiState.selectedLang, onLangSelected)
-        FilterChipRow("年份", listOf("") + uiState.yearOptions, uiState.selectedYear, onYearSelected)
+        FilterChipRow(
+            label = "地区",
+            options = areaOptions,
+            selected = uiState.selectedArea,
+            onSelected = onAreaSelected,
+            rowFocus = areaRow,
+            upRow = plotRow,
+            downRow = langRow
+        )
+        FilterChipRow(
+            label = "语言",
+            options = langOptions,
+            selected = uiState.selectedLang,
+            onSelected = onLangSelected,
+            rowFocus = langRow,
+            upRow = areaRow,
+            downRow = yearRow
+        )
+        FilterChipRow(
+            label = "年份",
+            options = yearOptions,
+            selected = uiState.selectedYear,
+            onSelected = onYearSelected,
+            rowFocus = yearRow,
+            upRow = langRow,
+            downRow = sortRow
+        )
         FilterChipRow(
             label = "排序",
-            options = uiState.sortOptions.map { it.label },
+            options = sortOptions,
             selected = uiState.selectedSort.label,
             onSelected = { label ->
                 uiState.sortOptions.find { it.label == label }?.let(onSortSelected)
             },
-            displayTransform = { if (it.isBlank()) "全部" else it }
+            displayTransform = { if (it.isBlank()) "全部" else it },
+            rowFocus = sortRow,
+            upRow = yearRow,
+            downRow = null,
+            downFallbackRequester = if (uiState.items.isNotEmpty()) firstCardFocusRequester else null
         )
         Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun FilterChipRow(
     label: String,
     options: List<String>,
     selected: String,
     onSelected: (String) -> Unit,
+    rowFocus: FilterChipRowFocusState,
+    upRow: FilterChipRowFocusState?,
+    downRow: FilterChipRowFocusState?,
     displayTransform: (String) -> String = { if (it.isBlank()) "全部" else it },
-    firstChipFocusRequester: FocusRequester? = null,
-    sidebarFocusRequester: FocusRequester? = null
+    sidebarFocusRequester: FocusRequester? = null,
+    upFallbackRequester: FocusRequester? = null,
+    downFallbackRequester: FocusRequester? = null
 ) {
+    val chipScrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -954,48 +1100,91 @@ private fun FilterChipRow(
             modifier = Modifier.width(56.dp)
         )
 
-        TvLazyRow(
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(chipScrollState),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(end = 16.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items(options) { option ->
+            options.forEachIndexed { index, option ->
                 val isSelected = option == selected
                 val displayText = displayTransform(option)
-                val isFirstChip = firstChipFocusRequester != null && option == options.first()
-                val chipRequester = firstChipFocusRequester
+                val isFirstChip = index == 0
+                val selfRequester = rowFocus.requesters.getOrNull(index)
+                val bringIntoViewRequester = remember(option) { BringIntoViewRequester() }
                 var isFocused by remember(option) { mutableStateOf(false) }
+                var selfCenterX by remember(option) { mutableStateOf(Float.NaN) }
+
                 Card(
                     onClick = { onSelected(option) },
                     colors = TvSelectableTokens.chipColors(isSelected),
                     scale = CardDefaults.scale(focusedScale = 1.05f),
                     modifier = Modifier
                         .height(36.dp)
-                        .onFocusChanged { isFocused = it.isFocused }
+                        .bringIntoViewRequester(bringIntoViewRequester)
+                        .onGloballyPositioned { coords ->
+                            val cx = coords.boundsInWindow().center.x
+                            selfCenterX = cx
+                            rowFocus.updateCenterX(index, cx)
+                        }
+                        .onFocusChanged { focusState ->
+                            isFocused = focusState.isFocused
+                            if (focusState.isFocused) {
+                                scope.launch {
+                                    runCatching { bringIntoViewRequester.bringIntoView() }
+                                }
+                            }
+                        }
                         .then(
-                            if (isFirstChip && chipRequester != null) {
-                                Modifier
-                                    .focusRequester(chipRequester)
-                                    .focusProperties {
-                                        if (sidebarFocusRequester != null) {
-                                            left = sidebarFocusRequester
-                                        }
-                                    }
-                                    .onPreviewKeyEvent { event ->
-                                        if (
-                                            sidebarFocusRequester != null &&
-                                            event.type == KeyEventType.KeyDown &&
-                                            event.key == Key.DirectionLeft
-                                        ) {
-                                            sidebarFocusRequester.tryRequestFocus()
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    }
+                            if (selfRequester != null) {
+                                Modifier.focusRequester(selfRequester)
                             } else {
                                 Modifier
                             }
                         )
+                        .focusProperties {
+                            // 上下由按键按视觉列处理；禁用默认上下，避免仍按下标错位
+                            up = FocusRequester.Cancel
+                            down = FocusRequester.Cancel
+                            if (isFirstChip && sidebarFocusRequester != null) {
+                                left = sidebarFocusRequester
+                            }
+                        }
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionUp -> {
+                                    val target = upRow?.nearestRequester(selfCenterX)
+                                        ?: upFallbackRequester
+                                    if (target != null) {
+                                        target.tryRequestFocus()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionDown -> {
+                                    val target = downRow?.nearestRequester(selfCenterX)
+                                        ?: downFallbackRequester
+                                    if (target != null) {
+                                        target.tryRequestFocus()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionLeft -> {
+                                    if (isFirstChip && sidebarFocusRequester != null) {
+                                        sidebarFocusRequester.tryRequestFocus()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                else -> false
+                            }
+                        }
                 ) {
                     Box(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1009,6 +1198,7 @@ private fun FilterChipRow(
                     }
                 }
             }
+            Spacer(modifier = Modifier.width(16.dp))
         }
     }
 }

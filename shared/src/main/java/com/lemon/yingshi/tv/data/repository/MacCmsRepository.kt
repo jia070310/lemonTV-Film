@@ -1037,6 +1037,18 @@ class MacCmsRepository @Inject constructor(
             }
 
         suspend fun enrichPoolThenStrictPrune() {
+            if (!MacCmsFilterSupport.needsFilterDetailEnrichment(
+                    filter.plot, filter.area, filter.lang, filter.year
+                )
+            ) {
+                // 即便列表已有字段，也要剔除未命中项（避免凑够条数提前返回时混入）
+                val kept = pool.filter { MacCmsFilterSupport.rowMatchesFiltersStrict(it, filter) }
+                pool.clear()
+                pool.addAll(kept)
+                seen.clear()
+                kept.forEach { seen.add(it.vodId) }
+                return
+            }
             val need = mutableSetOf<Int>()
             for (r in pool) {
                 if (filter.plot.isNotBlank() && r.vodClass.isNullOrBlank()) need.add(r.vodId)
@@ -1044,12 +1056,13 @@ class MacCmsRepository @Inject constructor(
                 if (filter.lang.isNotBlank() && r.vodLang.isNullOrBlank()) need.add(r.vodId)
                 if (filter.year.isNotBlank() && r.vodYear.isNullOrBlank()) need.add(r.vodId)
             }
-            if (need.isEmpty()) return
-            val baseUrl = getServerUrl()
-            val detailMap = fetchVodRowsByDetailIds(baseUrl, need.toList())
-            for (i in pool.indices) {
-                val detail = detailMap[pool[i].vodId] ?: continue
-                pool[i] = mergeListRowWithDetail(pool[i], resolveItemAssets(baseUrl, detail))
+            if (need.isNotEmpty()) {
+                val baseUrl = getServerUrl()
+                val detailMap = fetchVodRowsByDetailIds(baseUrl, need.toList())
+                for (i in pool.indices) {
+                    val detail = detailMap[pool[i].vodId] ?: continue
+                    pool[i] = mergeListRowWithDetail(pool[i], resolveItemAssets(baseUrl, detail))
+                }
             }
             val kept = pool.filter { MacCmsFilterSupport.rowMatchesFiltersStrict(it, filter) }
             pool.clear()
@@ -1058,7 +1071,8 @@ class MacCmsRepository @Inject constructor(
             kept.forEach { seen.add(it.vodId) }
         }
 
-        fun finish(exhaustedAll: Boolean): FilterCatalogResult {
+        suspend fun finish(exhaustedAll: Boolean): FilterCatalogResult {
+            enrichPoolThenStrictPrune()
             val sorted = MacCmsFilterSupport.sortFiltered(pool, filter.sort)
             val poolCap = targetSortedCount
                 .coerceAtLeast(MacCmsFilterSupport.FILTER_UI_PAGE_SIZE)
@@ -1071,19 +1085,15 @@ class MacCmsRepository @Inject constructor(
             )
         }
 
-        fun hasEnoughSorted(): Boolean =
-            MacCmsFilterSupport.sortFiltered(pool, filter.sort).size >= targetSortedCount
+        suspend fun hasEnoughSorted(): Boolean {
+            enrichPoolThenStrictPrune()
+            return MacCmsFilterSupport.sortFiltered(pool, filter.sort).size >= targetSortedCount
+        }
 
         for (pg in state.nextPg..maxPg) {
             val activeTypes = filter.typeIds.filter { exhausted[it] != true }
             if (activeTypes.isEmpty()) {
                 state.nextPg = pg
-                if (MacCmsFilterSupport.needsFilterDetailEnrichment(
-                        filter.plot, filter.area, filter.lang, filter.year
-                    )
-                ) {
-                    enrichPoolThenStrictPrune()
-                }
                 return finish(true)
             }
 
@@ -1133,16 +1143,8 @@ class MacCmsRepository @Inject constructor(
             }
             state.totalsCaptured = true
 
-            if (MacCmsFilterSupport.needsFilterDetailEnrichment(
-                    filter.plot, filter.area, filter.lang, filter.year
-                )
-            ) {
-                enrichPoolThenStrictPrune()
-            }
-
             state.nextPg = pg + 1
-            val sorted = MacCmsFilterSupport.sortFiltered(pool, filter.sort)
-            if (sorted.size >= targetSortedCount) {
+            if (hasEnoughSorted()) {
                 return finish(filter.typeIds.all { exhausted[it] == true })
             }
             if (filter.typeIds.all { exhausted[it] == true }) {
