@@ -4,6 +4,18 @@ import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeExtend
 import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeItem
 import com.lemon.yingshi.tv.data.remote.model.MacCmsTypeTreeItem
 
+/** 隐私隐藏设置中的可选分类项 */
+data class PrivacyHideCandidate(
+    val typeId: Int,
+    val label: String,
+    val isSecondary: Boolean,
+    val parentLabel: String?,
+    /** 二级分类所属一级 typeId */
+    val parentTypeId: Int? = null,
+    /** 一级分类下的全部二级 typeId */
+    val childTypeIds: List<Int> = emptyList()
+)
+
 /** 服务器顶级分类（含子类） */
 data class MacCmsNavCategory(
     val typeId: Int,
@@ -199,6 +211,70 @@ class MacCmsTaxonomy private constructor(
                 }
             )
         }
+
+    /**
+     * 按隐私设置过滤分类：敏感关键词命中名称，或 typeId 在手动隐藏列表中则不显示。
+     * 顶级分类被过滤时，其子类一并移除。
+     */
+    fun applyPrivacyFilter(
+        keywords: List<String>,
+        hiddenTypeIds: Set<Int>
+    ): MacCmsTaxonomy {
+        val normalized = keywords
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { it.lowercase() }
+            .distinct()
+        if (normalized.isEmpty() && hiddenTypeIds.isEmpty()) {
+            return this
+        }
+
+        fun isBlocked(typeId: Int, label: String): Boolean {
+            if (typeId in hiddenTypeIds) return true
+            if (normalized.isEmpty()) return false
+            val name = label.lowercase()
+            return normalized.any { keyword -> name.contains(keyword) }
+        }
+
+        val filtered = topCategories.mapNotNull { nav ->
+            if (isBlocked(nav.typeId, nav.label)) return@mapNotNull null
+            nav.copy(
+                children = nav.children.filterNot { child ->
+                    isBlocked(child.typeId, child.label)
+                }
+            )
+        }
+        return MacCmsTaxonomy(filtered, sourceLabel)
+    }
+
+    /** 扁平列出可用于隐私隐藏设置的分类（含一级与二级） */
+    fun privacyHideCandidates(): List<PrivacyHideCandidate> {
+        val rows = mutableListOf<PrivacyHideCandidate>()
+        topCategories.forEach { nav ->
+            val childIds = nav.children.map { it.typeId }
+            rows.add(
+                PrivacyHideCandidate(
+                    typeId = nav.typeId,
+                    label = nav.label,
+                    isSecondary = false,
+                    parentLabel = null,
+                    childTypeIds = childIds
+                )
+            )
+            nav.children.forEach { child ->
+                rows.add(
+                    PrivacyHideCandidate(
+                        typeId = child.typeId,
+                        label = child.label,
+                        isSecondary = true,
+                        parentLabel = nav.label,
+                        parentTypeId = nav.typeId
+                    )
+                )
+            }
+        }
+        return rows
+    }
 
     fun filterTypeIdsForSelection(
         navCategory: MacCmsNavCategory,

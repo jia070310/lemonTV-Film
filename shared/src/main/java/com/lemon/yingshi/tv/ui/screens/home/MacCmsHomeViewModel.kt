@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lemon.yingshi.tv.data.cache.HomeFeedDiskCache
 import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
+import com.lemon.yingshi.tv.data.preferences.PrivacyPreferences
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.data.repository.MacCmsErrorMessages
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
@@ -50,6 +51,7 @@ data class MacCmsHomeUiState(
 class MacCmsHomeViewModel @Inject constructor(
     private val macCmsRepository: MacCmsRepository,
     private val categorySortPreferences: MacCmsCategorySortPreferences,
+    private val privacyPreferences: PrivacyPreferences,
     private val homeFeedDiskCache: HomeFeedDiskCache
 ) : ViewModel() {
 
@@ -71,6 +73,7 @@ class MacCmsHomeViewModel @Inject constructor(
     init {
         loadHome()
         observeHomeConfigChanges()
+        observePrivacyConfigChanges()
         observeServerUrlChanges()
     }
 
@@ -129,7 +132,10 @@ class MacCmsHomeViewModel @Inject constructor(
 
             try {
                 val taxonomy = withContext(Dispatchers.IO) {
-                    macCmsRepository.fetchTaxonomy(forceRefresh = forceRefresh)
+                    val raw = macCmsRepository.fetchTaxonomy(forceRefresh = forceRefresh)
+                    val keywords = privacyPreferences.filterKeywords.first()
+                    val hiddenIds = privacyPreferences.hiddenTypeIds.first()
+                    raw.applyPrivacyFilter(keywords, hiddenIds)
                 }
                 if (generation != homeLoadGeneration) return@launch
                 cachedTaxonomy = taxonomy
@@ -422,6 +428,14 @@ class MacCmsHomeViewModel @Inject constructor(
     private fun observeHomeConfigChanges() {
         viewModelScope.launch {
             categorySortPreferences.homeConfigChanges
+                .drop(1)
+                .collect { loadHome(forceRefresh = true) }
+        }
+    }
+
+    private fun observePrivacyConfigChanges() {
+        viewModelScope.launch {
+            privacyPreferences.privacyConfigChanges
                 .drop(1)
                 .collect { loadHome(forceRefresh = true) }
         }

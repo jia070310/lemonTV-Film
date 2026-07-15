@@ -4,8 +4,8 @@
 
 | 平台 | 包名 | 当前版本 | versionCode |
 |------|------|----------|-------------|
-| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.12** | **10012** |
-| 手机 | `com.lemon.yingshi.mobile` | **v1.0.6** | **10006** |
+| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.13** | **10013** |
+| 手机 | `com.lemon.yingshi.mobile` | **v1.0.7** | **10007** |
 
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
@@ -19,6 +19,7 @@
 
 ### 内容浏览
 - **MacCMS 接入**：在设置中配置站点 API 地址，即可拉取影视数据
+- **隐私设置**：敏感关键词过滤分类，或手动隐藏分类（关闭一级时二级一并隐藏）；首页与片库均生效
 - **首页分区**：电视剧、电影、综艺、演唱会等分类展示
 - **卡片骨架加载**：首页/筛选页先显示卡片框架与片名，封面逐张淡入
 - **详情页秒开**：复用列表缓存数据，进入详情立即展示海报与简介
@@ -428,13 +429,15 @@ Release 签名配置见 `app/build.gradle.kts` 与 `app-mobile/build.gradle.kts`
 
 | 平台 | Release 标签 | APK 文件名 |
 |------|--------------|------------|
-| TV | `v1.0.12` | `LomenTV-release-v1.0.12.apk` 或含 `tv` |
-| 手机 | `mobile-v1.0.6` | `LomenMobile-release-v1.0.6.apk`（文件名需含 `mobile`） |
+| TV | `v1.0.13` | `LomenTV-release-v1.0.13.apk` 或含 `tv` |
+| 手机 | `mobile-v1.0.7` | `LomenMobile-release-v1.0.7.apk`（文件名需含 `mobile`） |
 
 ## 版本发布
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| [v1.0.13](RELEASES/v1.0.13.md) | 2026-07-15 | TV：隐私设置（敏感词过滤 / 隐藏分类，一级关闭二级同步） |
+| [mobile-v1.0.7](RELEASES/mobile-v1.0.7.md) | 2026-07-15 | 手机：同步隐私设置（敏感词过滤 / 隐藏分类联动） |
 | [v1.0.12](RELEASES/v1.0.12.md) | 2026-07-14 | TV：播放版本/集名按接口展示，电影单版本可见，历史标签修正 |
 | [mobile-v1.0.6](RELEASES/mobile-v1.0.6.md) | 2026-07-14 | 手机：播放版本/集名按接口展示，缓存选择与电影版本显示修正 |
 | [v1.0.11](RELEASES/v1.0.11.md) | 2026-07-14 | TV：筛选 type_extend / 准确度、二级分类与遥控焦点、资源管理输入体验 |

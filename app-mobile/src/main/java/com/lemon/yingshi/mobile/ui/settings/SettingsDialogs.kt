@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.DialogCategorySortBinding
+import com.lemon.yingshi.mobile.databinding.DialogPrivacyKeywordsBinding
 import com.lemon.yingshi.mobile.databinding.DialogSettingsConfirmBinding
 import com.lemon.yingshi.mobile.databinding.DialogSettingsMenuBinding
 import com.lemon.yingshi.mobile.databinding.ItemCategorySortBinding
@@ -23,7 +24,11 @@ object SettingsDialogs {
     data class CategorySortItem(
         val key: String,
         val name: String,
-        var visible: Boolean
+        var visible: Boolean,
+        /** 二级所属一级 key；隐私隐藏联动用 */
+        val parentKey: String? = null,
+        /** 一级下全部二级 key；隐私隐藏联动用 */
+        val childKeys: List<String> = emptyList()
     )
 
     private fun dp(context: Context, value: Int): Int =
@@ -109,9 +114,72 @@ object SettingsDialogs {
         errorMessage: String?,
         onSave: (List<CategorySortItem>) -> Unit
     ): Dialog {
+        return showCategoryListDialog(
+            context = context,
+            titleRes = R.string.settings_home_sort,
+            items = items,
+            isLoading = isLoading,
+            errorMessage = errorMessage,
+            showReorder = true,
+            onSave = onSave
+        )
+    }
+
+    fun showPrivacyHideDialog(
+        context: Context,
+        items: List<CategorySortItem>,
+        isLoading: Boolean,
+        errorMessage: String?,
+        onSave: (List<CategorySortItem>) -> Unit
+    ): Dialog {
+        return showCategoryListDialog(
+            context = context,
+            titleRes = R.string.settings_privacy_hide,
+            items = items,
+            isLoading = isLoading,
+            errorMessage = errorMessage,
+            showReorder = false,
+            onSave = onSave
+        )
+    }
+
+    fun showPrivacyKeywordsDialog(
+        context: Context,
+        currentKeywords: String,
+        onSave: (String) -> Unit
+    ): Dialog {
+        val binding = DialogPrivacyKeywordsBinding.inflate(LayoutInflater.from(context))
+        binding.keywordsInput.setText(currentKeywords)
+        val dialog = Dialog(context)
+        dialog.setContentView(binding.root)
+        styleDialogWindow(
+            dialog,
+            minOf(dp(context, 300), (context.resources.displayMetrics.widthPixels * 0.86f).toInt())
+        )
+        binding.cancelButton.setOnClickListener { dialog.dismiss() }
+        binding.saveButton.setOnClickListener {
+            onSave(binding.keywordsInput.text?.toString().orEmpty())
+            dialog.dismiss()
+        }
+        dialog.show()
+        return dialog
+    }
+
+    private fun showCategoryListDialog(
+        context: Context,
+        titleRes: Int,
+        items: List<CategorySortItem>,
+        isLoading: Boolean,
+        errorMessage: String?,
+        showReorder: Boolean,
+        onSave: (List<CategorySortItem>) -> Unit
+    ): Dialog {
         val binding = DialogCategorySortBinding.inflate(LayoutInflater.from(context))
+        val titleView = binding.root.getChildAt(0) as? TextView
+        titleView?.setText(titleRes)
+
         val editable = items.map { it.copy() }.toMutableList()
-        val adapter = CategorySortAdapter(editable)
+        val adapter = CategorySortAdapter(editable, showReorder)
 
         val rowHeight = dp(context, 34)
         val maxListHeight = dp(context, 180)
@@ -152,7 +220,8 @@ object SettingsDialogs {
     }
 
     private class CategorySortAdapter(
-        private val items: MutableList<CategorySortItem>
+        private val items: MutableList<CategorySortItem>,
+        private val showReorder: Boolean
     ) : RecyclerView.Adapter<CategorySortAdapter.Holder>() {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -179,8 +248,16 @@ object SettingsDialogs {
                 binding.visibleSwitch.setOnCheckedChangeListener(null)
                 binding.visibleSwitch.isChecked = item.visible
                 binding.visibleSwitch.setOnCheckedChangeListener { _, checked ->
-                    item.visible = checked
+                    if (showReorder) {
+                        item.visible = checked
+                    } else {
+                        applyPrivacyVisibilityCascade(item, checked)
+                    }
                 }
+                binding.moveUpButton.isVisible = showReorder
+                binding.moveDownButton.isVisible = showReorder
+                if (!showReorder) return
+
                 binding.moveUpButton.isEnabled = position > 0
                 binding.moveUpButton.alpha = if (position > 0) 1f else 0.35f
                 binding.moveDownButton.isEnabled = position < items.lastIndex
@@ -194,6 +271,33 @@ object SettingsDialogs {
                     val index = bindingAdapterPosition
                     if (index < 0 || index >= items.lastIndex) return@setOnClickListener
                     swap(index, index + 1)
+                }
+            }
+
+            /** 隐私隐藏：关闭一级时二级一并关闭；打开一级时二级一并打开 */
+            private fun applyPrivacyVisibilityCascade(item: CategorySortItem, visible: Boolean) {
+                item.visible = visible
+                val changed = mutableSetOf(item.key)
+                if (item.childKeys.isNotEmpty()) {
+                    items.forEach { other ->
+                        if (other.key in item.childKeys) {
+                            other.visible = visible
+                            changed.add(other.key)
+                        }
+                    }
+                }
+                if (visible && item.parentKey != null) {
+                    items.forEach { other ->
+                        if (other.key == item.parentKey) {
+                            other.visible = true
+                            changed.add(other.key)
+                        }
+                    }
+                }
+                items.forEachIndexed { index, row ->
+                    if (row.key in changed) {
+                        notifyItemChanged(index)
+                    }
                 }
             }
 

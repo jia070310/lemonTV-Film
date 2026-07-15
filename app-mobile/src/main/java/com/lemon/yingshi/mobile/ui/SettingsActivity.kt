@@ -9,6 +9,7 @@ import com.lemon.yingshi.mobile.databinding.ActivitySettingsBinding
 import com.lemon.yingshi.mobile.databinding.ItemProfileMenuBinding
 import com.lemon.yingshi.mobile.ui.settings.HomeSettingsActivity
 import com.lemon.yingshi.mobile.ui.settings.PlaybackSettingsActivity
+import com.lemon.yingshi.mobile.ui.settings.PrivacySettingsActivity
 import com.lemon.yingshi.mobile.ui.settings.ResourceSettingsActivity
 import com.lemon.yingshi.mobile.util.setBackNavigation
 import dagger.hilt.android.AndroidEntryPoint
@@ -39,6 +40,14 @@ class SettingsActivity : AppCompatActivity() {
             getString(R.string.settings_home_menu_desc)
         ) {
             startActivity(Intent(this, HomeSettingsActivity::class.java))
+        }
+        setupMenu(
+            binding.menuPrivacy,
+            android.R.drawable.ic_menu_view,
+            getString(R.string.settings_privacy),
+            getString(R.string.settings_privacy_menu_desc)
+        ) {
+            startActivity(Intent(this, PrivacySettingsActivity::class.java))
         }
         setupMenu(
             binding.menuPlayback,

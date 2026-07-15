@@ -3,6 +3,7 @@ package com.lemon.yingshi.tv.ui.screens.filter
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lemon.yingshi.tv.data.preferences.PrivacyPreferences
 import com.lemon.yingshi.tv.data.remote.model.MacCmsSortOption
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.data.repository.FilterCatalogContinuation
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,6 +27,7 @@ import javax.inject.Inject
 @HiltViewModel
 class FilterViewModel @Inject constructor(
     private val macCmsRepository: MacCmsRepository,
+    private val privacyPreferences: PrivacyPreferences,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -44,6 +48,7 @@ class FilterViewModel @Inject constructor(
 
     init {
         loadInitialData()
+        observePrivacyConfigChanges()
     }
 
     fun loadInitialData() {
@@ -64,6 +69,10 @@ class FilterViewModel @Inject constructor(
                     }
 
                     val loadedTaxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = false)
+                        .applyPrivacyFilter(
+                            keywords = privacyPreferences.filterKeywords.first(),
+                            hiddenTypeIds = privacyPreferences.hiddenTypeIds.first()
+                        )
                     taxonomy = loadedTaxonomy
                     val treeCategories = loadedTaxonomy.filterTreeCategories()
 
@@ -111,6 +120,14 @@ class FilterViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    private fun observePrivacyConfigChanges() {
+        viewModelScope.launch {
+            privacyPreferences.privacyConfigChanges
+                .drop(1)
+                .collect { loadInitialData() }
         }
     }
 

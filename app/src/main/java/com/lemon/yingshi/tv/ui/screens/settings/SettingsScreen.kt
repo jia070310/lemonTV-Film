@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -149,11 +150,15 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showClearWatchHistoryDialog by remember { mutableStateOf(false) }
     var showClearPlaybackStatsDialog by remember { mutableStateOf(false) }
+    var showKeywordsDialog by remember { mutableStateOf(false) }
+    var showHideCategoriesDialog by remember { mutableStateOf(false) }
+    var showClearPrivacyDialog by remember { mutableStateOf(false) }
     var showSuccessMessage by remember { mutableStateOf<String?>(null) }
     
     val categories = listOf(
         SettingCategory("资源管理", Icons.Default.CloudUpload),
         SettingCategory("首页设置", Icons.Default.Settings),
+        SettingCategory("隐私设置", Icons.Default.VisibilityOff),
         SettingCategory("播放设置", Icons.Default.PlayArrow),
         SettingCategory("关于应用", Icons.Default.Info)
     )
@@ -191,6 +196,9 @@ fun SettingsScreen(
                 onShowClearWatchHistoryDialog = { showClearWatchHistoryDialog = true },
                 onShowVersionUpdateDialog = { showVersionUpdateDialog = true },
                 onShowClearPlaybackStatsDialog = { showClearPlaybackStatsDialog = true },
+                onShowKeywordsDialog = { showKeywordsDialog = true },
+                onShowHideCategoriesDialog = { showHideCategoriesDialog = true },
+                onShowClearPrivacyDialog = { showClearPrivacyDialog = true },
                 onShowSuccessMessage = { showSuccessMessage = it },
                 hasUpdate = hasUpdate,
                 versionInfo = versionInfo,
@@ -252,6 +260,41 @@ fun SettingsScreen(
                 showSuccessMessage = "缓存已清除"
             },
             onDismiss = { showClearCacheDialog = false }
+        )
+    }
+
+    if (showKeywordsDialog) {
+        PrivacyKeywordsDialog(
+            onDismiss = { showKeywordsDialog = false },
+            onSuccess = {
+                showKeywordsDialog = false
+                showSuccessMessage = "敏感关键词已保存"
+            }
+        )
+    }
+
+    if (showHideCategoriesDialog) {
+        PrivacyHideCategoriesDialog(
+            onDismiss = { showHideCategoriesDialog = false },
+            onSuccess = {
+                showHideCategoriesDialog = false
+                showSuccessMessage = "隐藏分类已保存"
+            }
+        )
+    }
+
+    if (showClearPrivacyDialog) {
+        val privacyViewModel: com.lemon.yingshi.tv.ui.viewmodel.PrivacySettingsViewModel =
+            hiltViewModel()
+        ConfirmDialog(
+            title = "清空隐私设置",
+            message = "确定清除全部敏感关键词与手动隐藏分类吗？",
+            onConfirm = {
+                privacyViewModel.clearAll()
+                showClearPrivacyDialog = false
+                showSuccessMessage = "隐私设置已清空"
+            },
+            onDismiss = { showClearPrivacyDialog = false }
         )
     }
     
@@ -467,7 +510,7 @@ private fun SettingsSidebar(
                         }
                     )
                     // 版本更新红点提示
-                    if (index == 4 && hasUpdate) { // 4 是"关于应用"的索引
+                    if (category.name == "关于应用" && hasUpdate) {
                         Spacer(modifier = Modifier.weight(1f))
                         Box(
                             modifier = Modifier
@@ -511,6 +554,9 @@ private fun SettingsContent(
     onShowClearWatchHistoryDialog: () -> Unit,
     onShowVersionUpdateDialog: () -> Unit,
     onShowClearPlaybackStatsDialog: () -> Unit,
+    onShowKeywordsDialog: () -> Unit,
+    onShowHideCategoriesDialog: () -> Unit,
+    onShowClearPrivacyDialog: () -> Unit,
     onShowSuccessMessage: (String) -> Unit,
     hasUpdate: Boolean,
     versionInfo: VersionInfo?,
@@ -576,7 +622,16 @@ private fun SettingsContent(
                         onShowClearCacheDialog = onShowClearCacheDialog
                     )
                 }
-                2 -> { // 播放设置
+                2 -> { // 隐私设置
+                    SectionTitle(title = "隐私设置", accentColor = PrimaryYellow)
+                    Spacer(modifier = Modifier.height(16.dp.scale(s)))
+                    PrivacySettingsSection(
+                        onShowKeywordsDialog = onShowKeywordsDialog,
+                        onShowHideCategoriesDialog = onShowHideCategoriesDialog,
+                        onShowClearPrivacyDialog = onShowClearPrivacyDialog
+                    )
+                }
+                3 -> { // 播放设置
                     SectionTitle(title = "播放设置", accentColor = PrimaryYellow)
                     Spacer(modifier = Modifier.height(16.dp.scale(s)))
                     PlaybackSettingsSection(
@@ -584,7 +639,7 @@ private fun SettingsContent(
                         onShowSuccessMessage = onShowSuccessMessage
                     )
                 }
-                3 -> { // 关于应用
+                4 -> { // 关于应用
                     SectionTitle(title = "关于应用", accentColor = PrimaryYellow)
                     Spacer(modifier = Modifier.height(16.dp.scale(s)))
                     AboutSection(
@@ -1146,7 +1201,7 @@ private fun AboutSection(
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun SettingCard(
+internal fun SettingCard(
     icon: ImageVector,
     iconBackgroundColor: Color,
     iconTint: Color,
@@ -1579,7 +1634,7 @@ private data class SettingCategory(
  */
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun ConfirmDialog(
+internal fun ConfirmDialog(
     title: String,
     message: String,
     onConfirm: () -> Unit,
