@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -20,8 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -73,8 +72,15 @@ fun MacCmsVodRow(
     showTopVersionBadge: Boolean,
     topVersionBadgeFocusRequester: FocusRequester?,
     upRowFocusRequesters: List<FocusRequester>? = null,
-    downRowFocusRequesters: List<FocusRequester>? = null
+    downRowFocusRequesters: List<FocusRequester>? = null,
+    showSkeleton: Boolean = false,
+    skeletonCount: Int = HOME_SKELETON_CARD_COUNT
 ) {
+    if (showSkeleton) {
+        MacCmsSkeletonRow(cardCount = skeletonCount)
+        return
+    }
+
     val displayCount = items.size.coerceAtMost(HOME_MACCMS_MAX_ITEMS)
     val totalItems = displayCount + if (showMore) 1 else 0
 
@@ -137,6 +143,52 @@ fun MacCmsVodRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun MacCmsSkeletonRow(cardCount: Int = HOME_SKELETON_CARD_COUNT) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 48.dp, end = 120.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        repeat(cardCount) {
+            MacCmsSkeletonCard()
+        }
+    }
+}
+
+@Composable
+fun MacCmsSkeletonCard() {
+    Column(modifier = Modifier.width(160.dp)) {
+        Box(
+            modifier = Modifier
+                .width(160.dp)
+                .height(240.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(SurfaceDark)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceDark.copy(alpha = 0.85f))
+        )
+    }
+}
+
+@Composable
+fun RecommendedSkeletonSection() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        MacCmsSkeletonRow(cardCount = HOME_RECOMMENDED_COLUMNS)
+        MacCmsSkeletonRow(cardCount = HOME_RECOMMENDED_COLUMNS)
     }
 }
 

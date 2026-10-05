@@ -31,6 +31,7 @@ import com.lemon.yingshi.mobile.ui.VodUiBinder
 import com.lemon.yingshi.mobile.ui.navigation.TopLevelNavigation
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import com.lemon.yingshi.tv.domain.service.OfflineDownloadService
+import com.lemon.yingshi.tv.ui.screens.home.HOME_INITIAL_LOAD_SECTIONS
 import com.lemon.yingshi.tv.ui.screens.home.HOME_RECOMMENDED_HOME_ITEMS
 import com.lemon.yingshi.tv.ui.screens.home.HOME_SKELETON_CARD_COUNT
 import com.lemon.yingshi.tv.ui.screens.home.MacCmsHomeSection
@@ -133,7 +134,9 @@ class HomeFragment : Fragment() {
         }
 
         binding.refreshLayout.setOnRefreshListener {
-            viewModel.loadHome(forceRefresh = true)
+            if (!binding.refreshLayout.isRefreshing) {
+                viewModel.loadHome(forceRefresh = true)
+            }
         }
         binding.scrollView.setOnScrollChangeListener { _, _, scrollY, _, _ ->
             binding.refreshLayout.canRefresh = scrollY == 0
@@ -142,16 +145,19 @@ class HomeFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.onHomeVisible()
                 launch {
                     viewModel.isRefreshing.collect { refreshing ->
                         binding.refreshLayout.isRefreshing = refreshing
                     }
                 }
                 viewModel.uiState.collect { state ->
+                    val refreshing = viewModel.isRefreshing.value
                     binding.loadingIndicator.isVisible = state.isLoading &&
                         state.sections.isEmpty() &&
                         state.recommendedItems.isEmpty() &&
-                        !binding.refreshLayout.isRefreshing
+                        !refreshing &&
+                        !state.isRecommendedLoading
 
                     if (!state.isConfigured) {
                         showEmpty(getString(R.string.configure_server_first)) {
@@ -162,7 +168,9 @@ class HomeFragment : Fragment() {
 
                     if (state.error != null &&
                         state.sections.isEmpty() &&
-                        state.recommendedItems.isEmpty()
+                        state.recommendedItems.isEmpty() &&
+                        !state.isRecommendedLoading &&
+                        !refreshing
                     ) {
                         showEmpty(state.error.orEmpty()) {
                             viewModel.loadHome(forceRefresh = true)
@@ -174,13 +182,46 @@ class HomeFragment : Fragment() {
                     binding.scrollView.isVisible = true
 
                     val recommended = state.recommendedItems.take(HOME_RECOMMENDED_HOME_ITEMS)
-                    binding.carouselSection.root.isVisible = recommended.isNotEmpty()
-                    recommendAdapter.submitListIfChanged(recommended)
+                    val showRecommendSkeleton = state.isRecommendedLoading ||
+                        (refreshing && recommended.isEmpty())
+                    binding.carouselSection.root.isVisible =
+                        showRecommendSkeleton || recommended.isNotEmpty()
+                    if (showRecommendSkeleton) {
+                        recommendAdapter.showSkeleton(HOME_SKELETON_CARD_COUNT)
+                    } else {
+                        recommendAdapter.submitListIfChanged(recommended)
+                    }
 
-                    renderSections(state.sections)
-                    scheduleVisibleSectionLoad()
+                    if (refreshing && state.sections.isEmpty()) {
+                        renderSkeletonSections(HOME_INITIAL_LOAD_SECTIONS)
+                    } else {
+                        renderSections(state.sections)
+                        scheduleVisibleSectionLoad()
+                    }
                 }
             }
+        }
+    }
+
+    private fun renderSkeletonSections(count: Int) {
+        val container = binding.sectionsContainer
+        val inflater = LayoutInflater.from(requireContext())
+        sectionBindings.values.forEach { container.removeView(it.root) }
+        sectionBindings.clear()
+        sectionAdapters.clear()
+
+        repeat(count) { index ->
+            val key = "skeleton_$index"
+            val sectionBinding = LayoutHomeSectionBinding.inflate(inflater, container, false)
+            container.addView(sectionBinding.root)
+            sectionBinding.sectionTitle.text = getString(R.string.player_loading)
+            sectionBinding.sectionMore.isVisible = false
+            val adapter = VodGridAdapter { }.also {
+                setupHorizontalPosterRow(sectionBinding.sectionRecycler, it)
+                it.showSkeleton(HOME_SKELETON_CARD_COUNT)
+            }
+            sectionBindings[key] = sectionBinding
+            sectionAdapters[key] = adapter
         }
     }
 
@@ -246,6 +287,7 @@ class HomeFragment : Fragment() {
             }
 
             sectionBinding.sectionTitle.text = section.typeName
+            sectionBinding.sectionMore.isVisible = true
             sectionBinding.sectionMore.setOnClickListener {
                 val libraryTitle = buildLibraryTitle(section.typeName)
                 startActivity(

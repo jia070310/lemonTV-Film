@@ -3,6 +3,7 @@ package com.lemon.yingshi.tv.ui.screens.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lemon.yingshi.tv.data.cache.HomeFeedDiskCache
+import com.lemon.yingshi.tv.data.preferences.HomeFeedPreferences
 import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
 import com.lemon.yingshi.tv.data.preferences.PrivacyPreferences
 import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
@@ -11,6 +12,7 @@ import com.lemon.yingshi.tv.data.repository.MacCmsRepository
 import com.lemon.yingshi.tv.domain.model.MacCmsHomeSectionRef
 import com.lemon.yingshi.tv.domain.model.MacCmsTaxonomy
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +46,8 @@ data class MacCmsHomeUiState(
     val sections: List<MacCmsHomeSection> = emptyList(),
     val recommendedItems: List<MacCmsVodItem> = emptyList(),
     val recommendedTotal: Int = 0,
+    /** 推荐区是否处于骨架占位（刷新中尚未出数据） */
+    val isRecommendedLoading: Boolean = false,
     val error: String? = null
 )
 
@@ -52,7 +56,8 @@ class MacCmsHomeViewModel @Inject constructor(
     private val macCmsRepository: MacCmsRepository,
     private val categorySortPreferences: MacCmsCategorySortPreferences,
     private val privacyPreferences: PrivacyPreferences,
-    private val homeFeedDiskCache: HomeFeedDiskCache
+    private val homeFeedDiskCache: HomeFeedDiskCache,
+    private val homeFeedPreferences: HomeFeedPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MacCmsHomeUiState(isLoading = true))
@@ -71,31 +76,67 @@ class MacCmsHomeViewModel @Inject constructor(
     private val sectionLoadSemaphore = Semaphore(MAX_CONCURRENT_SECTION_LOADS)
 
     init {
-        loadHome()
+        viewModelScope.launch {
+            if (shouldAutoRefresh()) {
+                loadHome(forceRefresh = true)
+            } else {
+                loadHome(forceRefresh = false)
+            }
+        }
         observeHomeConfigChanges()
         observePrivacyConfigChanges()
         observeServerUrlChanges()
     }
 
+    /**
+     * 回到首页时调用：当天首次打开强制刷新；
+     * 同一天距上次成功刷新超过 [HOME_AUTO_REFRESH_INTERVAL_MS] 也强制刷新。
+     */
+    fun onHomeVisible() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            if (_isRefreshing.value) return@launch
+            if (shouldAutoRefresh()) {
+                loadHome(forceRefresh = true)
+            }
+        }
+    }
+
     fun loadHome(forceRefresh: Boolean = false) {
+        if (forceRefresh) {
+            if (_isRefreshing.value) return
+            _isRefreshing.value = true
+        }
         viewModelScope.launch {
             val generation = ++homeLoadGeneration
-            if (forceRefresh) _isRefreshing.value = true
             loadedSectionKeys.clear()
             loadingSectionKeys.clear()
             sectionEnrichTokens.clear()
 
-            val hasCachedData = _uiState.value.sections.any { it.isLoaded } ||
-                _uiState.value.recommendedItems.isNotEmpty()
+            val hasCachedData = !forceRefresh && (
+                _uiState.value.sections.any { it.isLoaded } ||
+                    _uiState.value.recommendedItems.isNotEmpty()
+                )
             _uiState.update {
                 it.copy(
-                    isLoading = !hasCachedData,
-                    isLoadingSections = false,
+                    isLoading = !hasCachedData && !forceRefresh,
+                    isLoadingSections = forceRefresh,
+                    isRecommendedLoading = forceRefresh,
                     error = null
                 )
             }
             if (forceRefresh) {
                 macCmsRepository.invalidateRecommendedCache()
+                _uiState.update {
+                    it.copy(
+                        recommendedItems = emptyList(),
+                        recommendedTotal = 0,
+                        sections = emptyList(),
+                        isRecommendedLoading = true,
+                        isLoadingSections = true,
+                        isLoading = false
+                    )
+                }
             }
 
             val serverUrl = macCmsRepository.getServerUrl()
@@ -107,7 +148,7 @@ class MacCmsHomeViewModel @Inject constructor(
                         error = "请先在设置中配置 MacCMS 服务器"
                     )
                 }
-                finishRefresh()
+                finishRefresh(generation)
                 return@launch
             }
 
@@ -120,6 +161,7 @@ class MacCmsHomeViewModel @Inject constructor(
                             isConfigured = true,
                             recommendedItems = homeFeedDiskCache.toRecommendedItems(cached.recommended),
                             recommendedTotal = cached.recommended.size,
+                            isRecommendedLoading = false,
                             sections = cached.sections.map { section ->
                                 homeFeedDiskCache.toHomeSection(section)
                             },
@@ -157,23 +199,26 @@ class MacCmsHomeViewModel @Inject constructor(
                     null
                 }
 
-                if (forceRefresh) {
-                    _uiState.update {
-                        it.copy(
-                            recommendedItems = emptyList(),
-                            recommendedTotal = 0
-                        )
-                    }
+                val placeholders = sectionRefs.mapIndexed { index, ref ->
+                    placeholderSection(
+                        ref = ref,
+                        loading = forceRefresh || index < HOME_INITIAL_LOAD_SECTIONS
+                    )
                 }
-
-                val placeholders = sectionRefs.map { ref -> placeholderSection(ref) }
                 _uiState.update { state ->
-                    val mergedSections = mergePlaceholders(state.sections, placeholders)
+                    val mergedSections = if (forceRefresh) {
+                        placeholders
+                    } else {
+                        mergePlaceholders(state.sections, placeholders)
+                    }
                     state.copy(
                         isLoading = false,
                         isConfigured = true,
                         isLoadingSections = sectionRefs.isNotEmpty(),
+                        isRecommendedLoading = forceRefresh || state.recommendedItems.isEmpty(),
                         sections = mergedSections,
+                        recommendedItems = if (forceRefresh) emptyList() else state.recommendedItems,
+                        recommendedTotal = if (forceRefresh) 0 else state.recommendedTotal,
                         error = sectionConfigError
                     )
                 }
@@ -187,7 +232,12 @@ class MacCmsHomeViewModel @Inject constructor(
                                 macCmsRepository.enrichVodItemsForDisplay(currentRecommended)
                             }
                             if (generation != homeLoadGeneration) return@launch
-                            _uiState.update { it.copy(recommendedItems = enriched) }
+                            _uiState.update {
+                                it.copy(
+                                    recommendedItems = enriched,
+                                    isRecommendedLoading = false
+                                )
+                            }
                         }
                     } catch (_: Exception) {
                         // 推荐区封面补全失败不阻塞
@@ -209,6 +259,7 @@ class MacCmsHomeViewModel @Inject constructor(
                                 state.copy(
                                     recommendedItems = preview.items,
                                     recommendedTotal = preview.total,
+                                    isRecommendedLoading = false,
                                     error = clearErrorIfHasContent(state, sectionConfigError)
                                 )
                             }
@@ -218,34 +269,45 @@ class MacCmsHomeViewModel @Inject constructor(
                                 }
                                 if (generation != homeLoadGeneration) return@launch
                                 _uiState.update { state ->
-                                    state.copy(recommendedItems = enriched.take(HOME_RECOMMENDED_HOME_ITEMS))
+                                    state.copy(
+                                        recommendedItems = enriched.take(HOME_RECOMMENDED_HOME_ITEMS),
+                                        isRecommendedLoading = false
+                                    )
                                 }
                             }
+                        } else {
+                            _uiState.update { it.copy(isRecommendedLoading = false) }
                         }
                     } catch (_: Exception) {
-                        // 推荐区失败不阻塞首页分类
+                        if (generation == homeLoadGeneration) {
+                            _uiState.update { it.copy(isRecommendedLoading = false) }
+                        }
                     }
                 }
 
                 if (sectionRefs.isEmpty()) {
-                    finishRefresh()
+                    finishRefresh(generation)
                     return@launch
                 }
 
                 val initialKeys = sectionRefs
                     .take(HOME_INITIAL_LOAD_SECTIONS)
                     .map { it.sectionKey }
-                startSectionLoads(initialKeys, generation, sectionConfigError)
+                val started = startSectionLoads(initialKeys, generation, sectionConfigError)
+                if (!started) {
+                    finishRefresh(generation)
+                }
             } catch (e: Exception) {
                 if (generation != homeLoadGeneration) return@launch
                 _uiState.update {
                     MacCmsHomeUiState(
                         isLoading = false,
                         isConfigured = true,
+                        isRecommendedLoading = false,
                         error = MacCmsErrorMessages.fromThrowable(e, "加载首页失败")
                     )
                 }
-                finishRefresh()
+                finishRefresh(generation)
             }
         }
     }
@@ -256,21 +318,25 @@ class MacCmsHomeViewModel @Inject constructor(
         startSectionLoads(sectionKeys, homeLoadGeneration, _uiState.value.error)
     }
 
+    /**
+     * @return 是否启动了至少一个栏目加载协程
+     */
     private fun startSectionLoads(
         sectionKeys: List<String>,
         generation: Int,
         sectionConfigError: String?
-    ) {
+    ): Boolean {
         val pending = sectionKeys.filter { key ->
             key !in loadedSectionKeys && key !in loadingSectionKeys
         }
-        if (pending.isEmpty()) return
+        if (pending.isEmpty()) return false
 
         pending.forEach { key ->
             viewModelScope.launch {
                 loadSection(key, generation, sectionConfigError)
             }
         }
+        return true
     }
 
     private suspend fun loadSection(
@@ -286,11 +352,14 @@ class MacCmsHomeViewModel @Inject constructor(
         if (taxonomy == null || ref == null) {
             loadingSectionKeys.remove(sectionKey)
             markSectionLoading(sectionKey, loading = false)
+            finishRefreshIfIdle(generation)
             return
         }
 
+        var acquired = false
         try {
             sectionLoadSemaphore.acquire()
+            acquired = true
             val result = withContext(Dispatchers.IO) {
                 when (ref) {
                     is MacCmsHomeSectionRef.Main ->
@@ -329,7 +398,9 @@ class MacCmsHomeViewModel @Inject constructor(
             markSectionLoading(sectionKey, loading = false)
         } finally {
             loadingSectionKeys.remove(sectionKey)
-            sectionLoadSemaphore.release()
+            if (acquired) {
+                sectionLoadSemaphore.release()
+            }
             if (generation == homeLoadGeneration) {
                 _uiState.update { state ->
                     val visibleSections = state.sections.filter { it.isLoaded && it.items.isNotEmpty() }
@@ -339,9 +410,7 @@ class MacCmsHomeViewModel @Inject constructor(
                             ?: if (visibleSections.isEmpty()) sectionConfigError else null
                     )
                 }
-                if (loadingSectionKeys.isEmpty()) {
-                    finishRefresh()
-                }
+                finishRefreshIfIdle(generation)
             }
         }
     }
@@ -380,7 +449,10 @@ class MacCmsHomeViewModel @Inject constructor(
         }
     }
 
-    private fun placeholderSection(ref: MacCmsHomeSectionRef): MacCmsHomeSection {
+    private fun placeholderSection(
+        ref: MacCmsHomeSectionRef,
+        loading: Boolean = false
+    ): MacCmsHomeSection {
         val filterTypeId = when (ref) {
             is MacCmsHomeSectionRef.Main -> 0
             is MacCmsHomeSectionRef.Secondary -> ref.typeId
@@ -392,7 +464,7 @@ class MacCmsHomeViewModel @Inject constructor(
             navTypeId = ref.navTypeId,
             items = emptyList(),
             total = 0,
-            isLoading = false,
+            isLoading = loading,
             isLoaded = false
         )
     }
@@ -421,8 +493,47 @@ class MacCmsHomeViewModel @Inject constructor(
         }
     }
 
-    private fun finishRefresh() {
+    private fun finishRefresh(generation: Int) {
+        if (generation != homeLoadGeneration) return
         _isRefreshing.value = false
+        _uiState.update {
+            it.copy(
+                isLoadingSections = false,
+                isRecommendedLoading = it.recommendedItems.isEmpty() && it.isRecommendedLoading
+            )
+        }
+        markRefreshSuccessIfHasContent()
+    }
+
+    private fun finishRefreshIfIdle(generation: Int) {
+        if (generation != homeLoadGeneration) return
+        if (loadingSectionKeys.isNotEmpty()) return
+        finishRefresh(generation)
+    }
+
+    private fun markRefreshSuccessIfHasContent() {
+        val state = _uiState.value
+        val hasContent = state.recommendedItems.isNotEmpty() ||
+            state.sections.any { it.isLoaded && it.items.isNotEmpty() }
+        if (!hasContent) return
+        viewModelScope.launch {
+            homeFeedPreferences.setLastSuccessfulRefreshAt(System.currentTimeMillis())
+        }
+    }
+
+    private suspend fun shouldAutoRefresh(): Boolean {
+        val last = homeFeedPreferences.getLastSuccessfulRefreshAt()
+        if (last <= 0L) return true
+        val now = System.currentTimeMillis()
+        if (!isSameCalendarDay(last, now)) return true
+        return now - last >= HOME_AUTO_REFRESH_INTERVAL_MS
+    }
+
+    private fun isSameCalendarDay(a: Long, b: Long): Boolean {
+        val calA = Calendar.getInstance().apply { timeInMillis = a }
+        val calB = Calendar.getInstance().apply { timeInMillis = b }
+        return calA.get(Calendar.YEAR) == calB.get(Calendar.YEAR) &&
+            calA.get(Calendar.DAY_OF_YEAR) == calB.get(Calendar.DAY_OF_YEAR)
     }
 
     private fun observeHomeConfigChanges() {

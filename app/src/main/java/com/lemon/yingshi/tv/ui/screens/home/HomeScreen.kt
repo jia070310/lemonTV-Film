@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,14 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.activity.compose.BackHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
-import java.util.concurrent.TimeUnit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
@@ -77,11 +71,21 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -206,8 +210,23 @@ fun HomeScreen(
 
     // MacCMS 首页数据
     val macCmsHomeState by macCmsHomeViewModel.uiState.collectAsState()
+    val isHomeRefreshing by macCmsHomeViewModel.isRefreshing.collectAsState()
     val macCmsSections = macCmsHomeState.sections
     val recommendedItems = macCmsHomeState.recommendedItems
+    val showRecommendedSkeleton = macCmsHomeState.isRecommendedLoading ||
+        (isHomeRefreshing && recommendedItems.isEmpty())
+    val showInitialSectionSkeletons = isHomeRefreshing && macCmsSections.isEmpty()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                macCmsHomeViewModel.onHomeVisible()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val unloadedSectionKeys = remember(macCmsSections) {
         macCmsSections.filter { !it.isLoaded }.map { it.sectionKey }
@@ -351,7 +370,12 @@ fun HomeScreen(
                 HomeHeader(
                     onSearchClick = onNavigateToSearch,
                     onFavoritesClick = onNavigateToFavorites,
-                    onRefreshClick = { macCmsHomeViewModel.loadHome(forceRefresh = true) },
+                    onRefreshClick = {
+                        if (!isHomeRefreshing) {
+                            macCmsHomeViewModel.loadHome(forceRefresh = true)
+                        }
+                    },
+                    isRefreshing = isHomeRefreshing,
                     notification = currentNotification,
                     firstRowFocusRequesters = rowFocusRequesters.firstOrNull(),
                     headerFocusRequesters = headerFocusRequesters,
@@ -389,8 +413,8 @@ fun HomeScreen(
                 item { Spacer(modifier = Modifier.height(32.dp)) }
             }
 
-            // 最新推荐栏目 - 推荐等级 9，两行六列
-            if (recommendedItems.isNotEmpty()) {
+            // 最新推荐栏目 - 推荐等级 9，两行六列；刷新时先出固定骨架
+            if (showRecommendedSkeleton || recommendedItems.isNotEmpty()) {
                 item {
                     SectionTitle(
                         title = "最新推荐",
@@ -398,30 +422,28 @@ fun HomeScreen(
                     )
                 }
                 item {
-                    RecommendedVodSection(
-                        items = recommendedItems,
-                        onItemClick = { vod ->
-                            macCmsHomeViewModel.cacheVodForDetail(vod)
-                            onNavigateToDetail(MacCmsIds.encode(vod.vodId))
-                        },
-                        onMoreClick = onNavigateToRecommended,
-                        rowFocusRequesters = rowFocusRequesters,
-                        firstRowIndex = rowIndexCursor,
-                        headerFocusRequesters = headerFocusRequesters,
-                        isFirstContentRow = rowIndexCursor == 0,
-                        onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
-                        showTopVersionBadge = showVersionBadgeOverlay,
-                        topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
-                    )
+                    if (showRecommendedSkeleton) {
+                        RecommendedSkeletonSection()
+                    } else {
+                        RecommendedVodSection(
+                            items = recommendedItems,
+                            onItemClick = { vod ->
+                                macCmsHomeViewModel.cacheVodForDetail(vod)
+                                onNavigateToDetail(MacCmsIds.encode(vod.vodId))
+                            },
+                            onMoreClick = onNavigateToRecommended,
+                            rowFocusRequesters = rowFocusRequesters,
+                            firstRowIndex = rowIndexCursor,
+                            headerFocusRequesters = headerFocusRequesters,
+                            isFirstContentRow = rowIndexCursor == 0,
+                            onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
+                            showTopVersionBadge = showVersionBadgeOverlay,
+                            topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
+                        )
+                    }
                 }
                 item { Spacer(modifier = Modifier.height(32.dp)) }
-                rowIndexCursor += if (recommendedItems.size.coerceAtMost(HOME_RECOMMENDED_HOME_ITEMS)
-                        .coerceAtMost(HOME_RECOMMENDED_COLUMNS) > 0
-                ) {
-                    2
-                } else {
-                    1
-                }
+                rowIndexCursor += 2
             }
 
             // MacCMS 分类内容行（分块加载：有内容先展示，仅在全空时显示加载圈）
@@ -441,37 +463,65 @@ fun HomeScreen(
                     }
                 }
             } else {
-                macCmsSections.forEachIndexed { sectionIndex, section ->
-                    item {
-                        SectionTitle(
-                            title = "${section.typeName} (${section.total})",
-                            accentColor = accentColorForCategory(section.typeName)
-                        )
+                if (showInitialSectionSkeletons) {
+                    repeat(HOME_INITIAL_LOAD_SECTIONS) { skeletonIndex ->
+                        item {
+                            SectionTitle(
+                                title = "加载中",
+                                accentColor = Color(0xFF6b7280)
+                            )
+                        }
+                        item {
+                            MacCmsSkeletonRow(cardCount = HOME_SKELETON_CARD_COUNT)
+                        }
+                        item { Spacer(modifier = Modifier.height(32.dp)) }
+                        rowIndexCursor++
                     }
-                    item {
-                        MacCmsVodRow(
-                            items = section.items,
-                            onItemClick = { vod ->
-                                macCmsHomeViewModel.cacheVodForDetail(vod)
-                                onNavigateToDetail(MacCmsIds.encode(vod.vodId))
-                            },
-                            showMore = section.items.isNotEmpty(),
-                            moreLabel = "更多",
-                            onMoreClick = {
-                                onNavigateToFilter(section.typeId, section.navTypeId ?: -1)
-                            },
-                            currentRowFocusRequesters = macCmsRowFocusRequesters.getOrNull(sectionIndex),
-                            headerFocusRequesters = headerFocusRequesters,
-                            isFirstContentRow = rowIndexCursor == 0,
-                            onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
-                            showTopVersionBadge = showVersionBadgeOverlay,
-                            topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester
-                        )
+                } else {
+                    macCmsSections.forEachIndexed { sectionIndex, section ->
+                        val showSectionSkeleton = section.items.isEmpty() &&
+                            (section.isLoading || !section.isLoaded)
+                        item {
+                            SectionTitle(
+                                title = if (showSectionSkeleton) {
+                                    section.typeName
+                                } else {
+                                    "${section.typeName} (${section.total})"
+                                },
+                                accentColor = accentColorForCategory(section.typeName)
+                            )
+                        }
+                        item {
+                            MacCmsVodRow(
+                                items = section.items,
+                                onItemClick = { vod ->
+                                    macCmsHomeViewModel.cacheVodForDetail(vod)
+                                    onNavigateToDetail(MacCmsIds.encode(vod.vodId))
+                                },
+                                showMore = section.items.isNotEmpty(),
+                                moreLabel = "更多",
+                                onMoreClick = {
+                                    onNavigateToFilter(section.typeId, section.navTypeId ?: -1)
+                                },
+                                currentRowFocusRequesters = macCmsRowFocusRequesters.getOrNull(sectionIndex),
+                                headerFocusRequesters = headerFocusRequesters,
+                                isFirstContentRow = rowIndexCursor == 0,
+                                onFocusedColumnChanged = { focusedColumnIndex = it.coerceIn(0, 3) },
+                                showTopVersionBadge = showVersionBadgeOverlay,
+                                topVersionBadgeFocusRequester = versionUpdateBadgeFocusRequester,
+                                showSkeleton = showSectionSkeleton,
+                                skeletonCount = HOME_SKELETON_CARD_COUNT
+                            )
+                        }
+                        item { Spacer(modifier = Modifier.height(32.dp)) }
+                        rowIndexCursor++
                     }
-                    item { Spacer(modifier = Modifier.height(32.dp)) }
-                    rowIndexCursor++
                 }
-                if (macCmsSections.isEmpty() && recommendedItems.isEmpty()) {
+                if (macCmsSections.isEmpty() &&
+                    recommendedItems.isEmpty() &&
+                    !showRecommendedSkeleton &&
+                    !showInitialSectionSkeletons
+                ) {
                     item {
                         Box(
                             modifier = Modifier
@@ -571,6 +621,7 @@ private fun HomeHeader(
     onSearchClick: () -> Unit,
     onFavoritesClick: () -> Unit,
     onRefreshClick: () -> Unit,
+    isRefreshing: Boolean = false,
     notification: com.lemon.yingshi.tv.domain.model.Notification? = null,
     firstRowFocusRequesters: List<FocusRequester>? = null,
     headerFocusRequesters: List<FocusRequester>,
@@ -634,7 +685,7 @@ private fun HomeHeader(
                 onClick = onRefreshClick,
                 colors = IconButtonDefaults.colors(
                     containerColor = Color.Transparent,
-                    contentColor = TextSecondary,
+                    contentColor = if (isRefreshing) TextMuted else TextSecondary,
                     focusedContainerColor = PrimaryYellow,
                     focusedContentColor = BackgroundDark
                 ),
@@ -663,11 +714,19 @@ private fun HomeHeader(
                         }
                     }
             ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "增量刮削",
-                    modifier = Modifier.size(24.dp)
-                )
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = PrimaryYellow,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "刷新首页",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.width(16.dp))
