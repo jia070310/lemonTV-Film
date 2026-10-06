@@ -3,14 +3,18 @@ package com.lemon.yingshi.tv.data.remote.model
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import com.google.gson.annotations.JsonAdapter
 import com.google.gson.annotations.SerializedName
 
 data class MacCmsListResponse(
     val code: Int = 0,
     val msg: String? = null,
+    @JsonAdapter(FlexibleIntAdapter::class)
     val page: Int = 1,
+    @JsonAdapter(FlexibleIntAdapter::class)
     val pagecount: Int = 1,
     val limit: String? = null,
+    @JsonAdapter(FlexibleIntAdapter::class)
     val total: Int = 0,
     val list: List<MacCmsVodItem> = emptyList(),
     @SerializedName("class")
@@ -153,6 +157,7 @@ data class MacCmsRestVodListResponse(
 
 data class MacCmsVodItem(
     @SerializedName("vod_id")
+    @JsonAdapter(FlexibleIntAdapter::class)
     val vodId: Int = 0,
     @SerializedName("vod_name")
     val vodName: String = "",
@@ -197,6 +202,7 @@ data class MacCmsVodItem(
     @SerializedName("vod_time")
     val vodTime: String? = null,
     @SerializedName("vod_level")
+    @JsonAdapter(FlexibleIntOrNullAdapter::class)
     val vodLevel: Int? = null
 )
 
@@ -210,6 +216,24 @@ data class MacCmsConnectionResult(
     /** MacCMS 版本描述 */
     val maccmsVersionLabel: String? = null
 )
+
+data class MacCmsServerEntry(
+    val url: String,
+    val name: String = "",
+    val lastStatus: String = "",
+    val version: String = "",
+    val categoryCount: Int = 0,
+    val apiSource: String = ""
+) {
+    fun compactSummary(): String {
+        val parts = buildList {
+            if (lastStatus.isNotBlank()) add(lastStatus)
+            if (version.isNotBlank()) add(version)
+            if (categoryCount > 0) add("${categoryCount}分类")
+        }
+        return parts.joinToString(" · ")
+    }
+}
 
 enum class MacCmsSortOption(val label: String, val by: String, val order: String) {
     LATEST("时间排序", "time", "desc"),

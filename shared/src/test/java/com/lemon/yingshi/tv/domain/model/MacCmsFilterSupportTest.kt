@@ -1,5 +1,6 @@
 package com.lemon.yingshi.tv.domain.model
 
+import com.lemon.yingshi.tv.data.remote.model.MacCmsVodItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

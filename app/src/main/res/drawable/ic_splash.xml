@@ -6,8 +6,8 @@
         </shape>
     </item>
     <item
-        android:width="200dp"
-        android:height="200dp"
+        android:width="160dp"
+        android:height="160dp"
         android:gravity="center"
-        android:drawable="@mipmap/ic_launcher_foreground"/>
+        android:drawable="@drawable/splash_logo"/>
 </layer-list>

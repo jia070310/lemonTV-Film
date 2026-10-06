@@ -4,8 +4,8 @@
 
 | 平台 | 包名 | 当前版本 | versionCode |
 |------|------|----------|-------------|
-| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.13** | **10013** |
-| 手机 | `com.lemon.yingshi.mobile` | **v1.0.7** | **10007** |
+| TV / 盒子 | `com.lemon.yingshi.tv` | **v1.0.14** | **10014** |
+| 手机 | `com.lemon.yingshi.mobile` | **v1.0.8** | **10008** |
 
 - 仓库地址：https://github.com/jia070310/lemonTV-Film
 - 安装包：[Releases](https://github.com/jia070310/lemonTV-Film/releases)
@@ -429,13 +429,15 @@ Release 签名配置见 `app/build.gradle.kts` 与 `app-mobile/build.gradle.kts`
 
 | 平台 | Release 标签 | APK 文件名 |
 |------|--------------|------------|
-| TV | `v1.0.13` | `LomenTV-release-v1.0.13.apk` 或含 `tv` |
-| 手机 | `mobile-v1.0.7` | `LomenMobile-release-v1.0.7.apk`（文件名需含 `mobile`） |
+| TV | `v1.0.14` | `LomenTV-release-v1.0.14.apk` 或含 `tv` |
+| 手机 | `mobile-v1.0.8` | `LomenMobile-release-v1.0.8.apk`（文件名需含 `mobile`） |
 
 ## 版本发布
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| [v1.0.14](RELEASES/v1.0.14.md) | 2026-10-06 | TV：多源切换、局域网管理、按源隐私、推荐 9 接口拉取 |
+| [mobile-v1.0.8](RELEASES/mobile-v1.0.8.md) | 2026-10-06 | 手机：同步多源与按源隐私、优化服务器下拉、推荐 9 接口拉取 |
 | [v1.0.13](RELEASES/v1.0.13.md) | 2026-07-15 | TV：隐私设置（敏感词过滤 / 隐藏分类，一级关闭二级同步） |
 | [mobile-v1.0.7](RELEASES/mobile-v1.0.7.md) | 2026-07-15 | 手机：同步隐私设置（敏感词过滤 / 隐藏分类联动） |
 | [v1.0.12](RELEASES/v1.0.12.md) | 2026-07-14 | TV：播放版本/集名按接口展示，电影单版本可见，历史标签修正 |

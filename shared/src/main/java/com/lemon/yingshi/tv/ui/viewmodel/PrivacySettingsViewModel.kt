@@ -3,13 +3,13 @@ package com.lemon.yingshi.tv.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lemon.yingshi.tv.data.preferences.PrivacyPreferences
+import com.lemon.yingshi.tv.data.remote.model.MacCmsServerEntry
 import com.lemon.yingshi.tv.data.repository.MacCmsRepository
 import com.lemon.yingshi.tv.domain.model.PrivacyHideCandidate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -19,41 +19,55 @@ class PrivacySettingsViewModel @Inject constructor(
     private val macCmsRepository: MacCmsRepository
 ) : ViewModel() {
 
-    val filterKeywordsRaw: StateFlow<String> = privacyPreferences.filterKeywordsRaw
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+    val serverList: StateFlow<List<MacCmsServerEntry>> = macCmsRepository.serverList
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val hiddenTypeIds: StateFlow<Set<Int>> = privacyPreferences.hiddenTypeIds
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val activeServerUrl: StateFlow<String> = privacyPreferences.currentServerUrl
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    suspend fun saveFilterKeywordsAwait(raw: String) {
-        privacyPreferences.saveFilterKeywords(raw)
-    }
-
-    fun saveFilterKeywords(raw: String) {
+    init {
         viewModelScope.launch {
-            privacyPreferences.saveFilterKeywords(raw)
+            privacyPreferences.prepare()
         }
     }
 
-    suspend fun saveHiddenTypeIdsAwait(typeIds: Set<Int>) {
-        privacyPreferences.saveHiddenTypeIds(typeIds)
-    }
+    suspend fun keywordsFor(url: String): String =
+        privacyPreferences.getProfile(url).keywords
 
-    fun saveHiddenTypeIds(typeIds: Set<Int>) {
+    fun saveFilterKeywords(url: String, raw: String) {
         viewModelScope.launch {
-            privacyPreferences.saveHiddenTypeIds(typeIds)
+            privacyPreferences.saveFilterKeywords(url, raw)
         }
     }
 
-    fun clearAll() {
+    suspend fun saveFilterKeywordsAwait(url: String, raw: String) {
+        privacyPreferences.saveFilterKeywords(url, raw)
+    }
+
+    fun saveHiddenTypeIds(url: String, typeIds: Set<Int>) {
         viewModelScope.launch {
-            privacyPreferences.clearAll()
+            privacyPreferences.saveHiddenTypeIds(url, typeIds)
         }
     }
 
-    suspend fun loadHideCandidates(): Result<List<PrivacyHideItem>> = runCatching {
-        val taxonomy = macCmsRepository.fetchTaxonomy()
-        val savedHidden = privacyPreferences.hiddenTypeIds.first()
+    suspend fun saveHiddenTypeIdsAwait(url: String, typeIds: Set<Int>) {
+        privacyPreferences.saveHiddenTypeIds(url, typeIds)
+    }
+
+    fun clearAll(url: String) {
+        viewModelScope.launch {
+            privacyPreferences.clearAll(url)
+        }
+    }
+
+    suspend fun loadHideCandidates(url: String): Result<List<PrivacyHideItem>> = runCatching {
+        if (url.isBlank()) error("请先选择要设置的服务器")
+        val taxonomy = macCmsRepository.fetchTaxonomy(forceRefresh = false, baseUrlOverride = url)
+        val savedHidden = privacyPreferences.getProfile(url).hiddenTypeIds
+            .split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .filter { it > 0 }
+            .toSet()
         val candidates = taxonomy.privacyHideCandidates()
         val effectiveHidden = expandHiddenWithChildren(candidates, savedHidden)
         candidates.map { candidate ->
@@ -81,7 +95,6 @@ class PrivacySettingsViewModel @Inject constructor(
     }
 
     companion object {
-        /** 一级被隐藏时，其二级一并计入隐藏集合（用于展示与持久化） */
         fun expandHiddenWithChildren(
             candidates: List<PrivacyHideCandidate>,
             hidden: Set<Int>
@@ -101,12 +114,6 @@ class PrivacySettingsViewModel @Inject constructor(
             hidden: Set<Int>
         ): Set<Int> = expandHiddenWithChildren(items.map { it.candidate }, hidden)
 
-        /**
-         * 切换显示/隐藏。
-         * - 关闭一级：一级 + 全部二级进入隐藏
-         * - 打开一级：一级 + 全部二级取消隐藏
-         * - 打开二级：同时取消其一级隐藏，否则仍无法显示
-         */
         fun toggleHidden(
             items: List<PrivacyHideItem>,
             typeId: Int,

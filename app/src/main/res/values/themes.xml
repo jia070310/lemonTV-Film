@@ -14,7 +14,14 @@
         <item name="android:windowFullscreen">true</item>
     </style>
     
-    <style name="Theme.LomenTV.Splash" parent="Theme.LomenTV">
+    <style name="Theme.LomenTV.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/primary_yellow</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/primary_yellow</item>
+        <item name="postSplashScreenTheme">@style/Theme.LomenTV</item>
         <item name="android:windowBackground">@drawable/ic_splash</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">false</item>
     </style>
 </resources>

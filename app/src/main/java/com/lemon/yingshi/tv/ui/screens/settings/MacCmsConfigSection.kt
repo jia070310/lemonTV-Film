@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +20,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +52,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,18 +63,70 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.lemon.yingshi.tv.ui.LocalCompactUiScale
 import com.lemon.yingshi.tv.ui.scale
 import com.lemon.yingshi.tv.ui.theme.BackgroundDark
 import com.lemon.yingshi.tv.ui.theme.PrimaryYellow
 import com.lemon.yingshi.tv.ui.theme.SuccessGreen
 import com.lemon.yingshi.tv.ui.theme.SurfaceDark
+import com.lemon.yingshi.tv.ui.theme.SurfaceVariant
 import com.lemon.yingshi.tv.ui.theme.TextPrimary
 import com.lemon.yingshi.tv.ui.theme.TextSecondary
 import com.lemon.yingshi.tv.ui.viewmodel.MacCmsConfigViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun resourceActionButtonColors() = ButtonDefaults.colors(
+    containerColor = SurfaceVariant,
+    focusedContainerColor = PrimaryYellow,
+    pressedContainerColor = PrimaryYellow,
+    contentColor = TextPrimary,
+    focusedContentColor = BackgroundDark,
+    pressedContentColor = BackgroundDark
+)
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ResourceActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onFocused: (Boolean) -> Unit = {},
+    icon: ImageVector? = null,
+    label: String? = null,
+    iconContentDescription: String? = label
+) {
+    var focused by remember { mutableStateOf(false) }
+    val fg = if (focused) BackgroundDark else TextPrimary
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = resourceActionButtonColors(),
+        modifier = modifier.onFocusChanged { state ->
+            focused = state.isFocused
+            onFocused(state.isFocused)
+        }
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = iconContentDescription,
+                tint = fg,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        if (icon != null && label != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        if (label != null) {
+            Text(text = label, color = fg)
+        }
+    }
+}
 
 private fun FocusRequester.tryRequestFocus(): Boolean =
     runCatching {
@@ -86,22 +143,27 @@ fun MacCmsConfigSection(
     val s = LocalCompactUiScale.current
     val focusManager = LocalFocusManager.current
     val serverUrl by viewModel.serverUrl.collectAsState()
+    val serverList by viewModel.serverList.collectAsState()
     val lastTestTime by viewModel.lastTestTime.collectAsState()
     val lastTestStatus by viewModel.lastTestStatus.collectAsState()
-    val siteName by viewModel.siteName.collectAsState()
-    val maccmsVersion by viewModel.maccmsVersion.collectAsState()
-    val savedCategoryCount by viewModel.savedCategoryCount.collectAsState()
-    val savedApiSource by viewModel.savedApiSource.collectAsState()
     val isTesting by viewModel.isTesting.collectAsState()
+    val testingUrl by viewModel.testingUrl.collectAsState()
     val testResult by viewModel.testResult.collectAsState()
     val saveMessage by viewModel.saveMessage.collectAsState()
 
     var inputUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
+    var inputName by remember(serverUrl) {
+        mutableStateOf(serverList.find { it.url == serverUrl }?.name.orEmpty())
+    }
+    var showQrDialog by remember { mutableStateOf(false) }
+    var pendingDeleteUrl by remember { mutableStateOf<String?>(null) }
 
     val saveButtonFocusRequester = remember { FocusRequester() }
     val testButtonFocusRequester = remember { FocusRequester() }
+    val qrButtonFocusRequester = remember { FocusRequester() }
+    val urlFocusRequester = remember { FocusRequester() }
 
-    val isConnected = lastTestStatus == "已连接"
+    val isConnected = testResult?.success == true || lastTestStatus == "已连接"
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val cardShape = RoundedCornerShape(16.dp.scale(s))
 
@@ -142,7 +204,7 @@ fun MacCmsConfigSection(
                             color = TextPrimary
                         )
                         Text(
-                            text = "配置苹果 CMS 站点地址，用于筛选页数据获取",
+                            text = "配置多个苹果 CMS 地址，当前源不通时自动切换",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -150,6 +212,25 @@ fun MacCmsConfigSection(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp.scale(s)))
+
+                Text(
+                    text = "服务器名称",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp.scale(s)))
+
+                MacCmsUrlInput(
+                    value = inputName,
+                    onValueChange = { inputName = it },
+                    placeholder = "例如：红牛资源、备用源",
+                    modifier = Modifier.fillMaxWidth(),
+                    focusRequester = contentFocusRequester,
+                    downFocusRequester = urlFocusRequester,
+                    onMoveLeft = { focusManager.moveFocus(FocusDirection.Left) }
+                )
+
+                Spacer(modifier = Modifier.height(12.dp.scale(s)))
 
                 Text(
                     text = "服务器地址",
@@ -163,27 +244,23 @@ fun MacCmsConfigSection(
                     onValueChange = { inputUrl = it },
                     placeholder = "https://your-maccms.com",
                     modifier = Modifier.fillMaxWidth(),
-                    focusRequester = contentFocusRequester,
+                    focusRequester = urlFocusRequester,
                     downFocusRequester = testButtonFocusRequester,
+                    upFocusRequester = contentFocusRequester,
                     onMoveLeft = { focusManager.moveFocus(FocusDirection.Left) }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp.scale(s)))
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp.scale(s)),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp.scale(s)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 左侧：测试（先测后存）；非黄底
-                    Button(
+                    ResourceActionButton(
                         onClick = { viewModel.testConnection(inputUrl) },
                         enabled = !isTesting,
-                        colors = ButtonDefaults.colors(
-                            containerColor = SurfaceDark,
-                            focusedContainerColor = PrimaryYellow,
-                            contentColor = TextPrimary,
-                            focusedContentColor = BackgroundDark
-                        ),
+                        icon = Icons.Default.Link,
+                        label = if (isTesting && testingUrl == inputUrl.trimEnd('/')) "测试中..." else "测试连通性",
                         modifier = Modifier
                             .focusRequester(testButtonFocusRequester)
                             .focusProperties {
@@ -192,7 +269,7 @@ fun MacCmsConfigSection(
                             .onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 when (event.key) {
-                                    Key.DirectionUp -> contentFocusRequester.tryRequestFocus()
+                                    Key.DirectionUp -> urlFocusRequester.tryRequestFocus()
                                     Key.DirectionLeft -> {
                                         focusManager.moveFocus(FocusDirection.Left)
                                         true
@@ -200,135 +277,204 @@ fun MacCmsConfigSection(
                                     else -> false
                                 }
                             }
-                    ) {
-                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isTesting) "测试中..." else "测试连通性")
-                    }
+                    )
 
-                    // 右侧：保存；黄底主操作
-                    Button(
-                        onClick = { viewModel.saveServerUrl(inputUrl) },
-                        colors = ButtonDefaults.colors(
-                            containerColor = PrimaryYellow,
-                            focusedContainerColor = PrimaryYellow,
-                            contentColor = BackgroundDark,
-                            focusedContentColor = BackgroundDark
-                        ),
+                    ResourceActionButton(
+                        onClick = { viewModel.saveServerUrl(inputUrl, inputName) },
+                        icon = Icons.Default.Save,
+                        label = "保存配置",
                         modifier = Modifier
                             .focusRequester(saveButtonFocusRequester)
                             .focusProperties {
                                 left = testButtonFocusRequester
+                                right = qrButtonFocusRequester
                             }
                             .onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 when (event.key) {
-                                    Key.DirectionUp -> contentFocusRequester.tryRequestFocus()
+                                    Key.DirectionUp -> urlFocusRequester.tryRequestFocus()
                                     else -> false
                                 }
                             }
-                    ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("保存配置")
-                    }
+                    )
+
+                    ResourceActionButton(
+                        onClick = { showQrDialog = true },
+                        icon = Icons.Default.QrCode2,
+                        label = "手机扫码管理",
+                        modifier = Modifier
+                            .focusRequester(qrButtonFocusRequester)
+                            .focusProperties {
+                                left = saveButtonFocusRequester
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionUp -> urlFocusRequester.tryRequestFocus()
+                                    Key.DirectionLeft -> saveButtonFocusRequester.tryRequestFocus()
+                                    else -> false
+                                }
+                            }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp.scale(s)))
 
-                Row(verticalAlignment = Alignment.Top) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 4.dp.scale(s))
-                            .size(10.dp.scale(s))
-                            .clip(CircleShape)
-                            .background(
-                                when {
-                                    isTesting -> PrimaryYellow
-                                    isConnected -> SuccessGreen
-                                    else -> Color.Gray
-                                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 40.dp.scale(s)),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp.scale(s))
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            isTesting -> PrimaryYellow
+                                            isConnected -> SuccessGreen
+                                            else -> Color.Gray
+                                        }
+                                    )
                             )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp.scale(s)))
+                            Spacer(modifier = Modifier.width(8.dp.scale(s)))
+                            Text(
+                                text = when {
+                                    isTesting -> "检测中"
+                                    testResult?.message?.isNotBlank() == true -> testResult!!.message
+                                    lastTestStatus.isNotBlank() -> lastTestStatus
+                                    else -> "未连接"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (lastTestTime > 0L) {
+                            Spacer(modifier = Modifier.height(6.dp.scale(s)))
+                            Text(
+                                text = "上次测试: ${dateFormat.format(Date(lastTestTime))}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                     Text(
-                        text = when {
-                            isTesting -> "检测中"
-                            testResult?.message?.isNotBlank() == true -> testResult!!.message
-                            lastTestStatus.isNotBlank() -> lastTestStatus
-                            else -> "未连接"
-                        },
+                        text = saveMessage.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        modifier = Modifier.weight(1f)
+                        color = PrimaryYellow,
+                        textAlign = TextAlign.End,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .padding(start = 12.dp.scale(s))
                     )
                 }
 
-                if (lastTestTime > 0L) {
-                    Spacer(modifier = Modifier.height(8.dp.scale(s)))
+                if (serverList.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp.scale(s)))
                     Text(
-                        text = "上次测试: ${dateFormat.format(Date(lastTestTime))}",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "已保存的服务器（当前源不通时自动切换）",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
-                }
-
-                if (saveMessage != null) {
                     Spacer(modifier = Modifier.height(8.dp.scale(s)))
-                    Text(
-                        text = saveMessage!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = PrimaryYellow
-                    )
-                }
-
-                if (isConnected) {
-                    Spacer(modifier = Modifier.height(16.dp.scale(s)))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp.scale(s)))
-                            .background(BackgroundDark.copy(alpha = 0.6f))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp.scale(s))) {
-                            Text(
-                                text = "服务器信息",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = TextPrimary
+                    serverList.forEach { entry ->
+                        val active = entry.url == serverUrl
+                        var testFocused by remember(entry.url) { mutableStateOf(false) }
+                        var useFocused by remember(entry.url) { mutableStateOf(false) }
+                        var deleteFocused by remember(entry.url) { mutableStateOf(false) }
+                        val rowHighlighted = testFocused || useFocused || deleteFocused
+                        val rowShape = RoundedCornerShape(10.dp.scale(s))
+                        val title = buildString {
+                            append(entry.name.ifBlank { entry.url })
+                            if (active) append("  · 当前")
+                        }
+                        val subtitle = buildList {
+                            if (entry.name.isNotBlank()) add(entry.url)
+                            add(entry.compactSummary().ifBlank { "未测试" })
+                        }.joinToString(" · ")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp.scale(s))
+                                .clip(rowShape)
+                                .background(BackgroundDark.copy(alpha = 0.6f))
+                                .then(
+                                    if (rowHighlighted) {
+                                        Modifier.border(2.dp.scale(s), PrimaryYellow, rowShape)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .padding(10.dp.scale(s)),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            ResourceActionButton(
+                                onClick = { viewModel.testConnection(entry.url) },
+                                enabled = !isTesting,
+                                label = if (isTesting && testingUrl == entry.url) "测试中" else "测试",
+                                onFocused = { testFocused = it }
                             )
-                            Spacer(modifier = Modifier.height(8.dp.scale(s)))
-                            Text(
-                                text = "站点: ${siteName.ifBlank { inputUrl }}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                            val displayCategoryCount = maxOf(
-                                testResult?.categoryCount ?: 0,
-                                savedCategoryCount
-                            )
-                            val displayVersion = testResult?.maccmsVersionLabel?.takeIf { it.isNotBlank() }
-                                ?: maccmsVersion.ifBlank { "—" }
-                            val displayApiSource = testResult?.apiSourceLabel?.takeIf { it.isNotBlank() }
-                                ?: savedApiSource.ifBlank { "—" }
-                            Text(
-                                text = "MacCMS 版本: $displayVersion",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                            Text(
-                                text = "分类数量: $displayCategoryCount",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                            Text(
-                                text = "分类来源: $displayApiSource",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
+                            Spacer(modifier = Modifier.width(8.dp.scale(s)))
+                            if (!active) {
+                                ResourceActionButton(
+                                    onClick = {
+                                        inputUrl = entry.url
+                                        inputName = entry.name
+                                        viewModel.selectServer(entry.url)
+                                    },
+                                    label = "使用",
+                                    onFocused = { useFocused = it }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp.scale(s)))
+                            }
+                            ResourceActionButton(
+                                onClick = { pendingDeleteUrl = entry.url },
+                                icon = Icons.Default.Delete,
+                                iconContentDescription = "删除",
+                                onFocused = { deleteFocused = it }
                             )
                         }
                     }
                 }
             }
+        }
+        if (showQrDialog) {
+            MacCmsAdminQrDialog(
+                viewModel = viewModel,
+                onDismiss = { showQrDialog = false }
+            )
+        }
+        pendingDeleteUrl?.let { url ->
+            ConfirmDialog(
+                title = "删除服务器",
+                message = "确定删除「$url」吗？删除后将从已保存列表中移除。",
+                onConfirm = {
+                    viewModel.removeServer(url)
+                    pendingDeleteUrl = null
+                },
+                onDismiss = { pendingDeleteUrl = null }
+            )
         }
     }
 }
@@ -342,6 +488,7 @@ private fun MacCmsUrlInput(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester,
     downFocusRequester: FocusRequester,
+    upFocusRequester: FocusRequester? = null,
     onMoveLeft: () -> Boolean
 ) {
     val s = LocalCompactUiScale.current
@@ -396,6 +543,11 @@ private fun MacCmsUrlInput(
             when (event.key) {
                 Key.Enter, Key.DirectionCenter -> onConfirmWhileFocused()
                 Key.DirectionDown, Key.Tab -> hideImeAndMoveToTest()
+                Key.DirectionUp -> {
+                    keyboardController?.hide()
+                    imeOpenedByConfirm = false
+                    upFocusRequester?.tryRequestFocus() ?: false
+                }
                 Key.DirectionLeft -> {
                     // 行内先移光标；仅在行首才跳出到左侧栏
                     if (moveCursorBy(-1)) {
@@ -423,12 +575,7 @@ private fun MacCmsUrlInput(
                 .fillMaxWidth()
                 .height(48.dp.scale(s))
                 .clip(inputShape)
-                .background(BackgroundDark)
-                .border(
-                    width = if (isFocused) 2.dp.scale(s) else 0.dp,
-                    color = if (isFocused) PrimaryYellow else Color.Transparent,
-                    shape = inputShape
-                )
+                .background(if (isFocused) PrimaryYellow else BackgroundDark)
                 .focusRequester(focusRequester)
                 .onFocusChanged { focusState ->
                     isFocused = focusState.isFocused
@@ -437,8 +584,10 @@ private fun MacCmsUrlInput(
                         imeOpenedByConfirm = false
                     }
                 },
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = TextPrimary),
-            cursorBrush = SolidColor(PrimaryYellow),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = if (isFocused) BackgroundDark else TextPrimary
+            ),
+            cursorBrush = SolidColor(if (isFocused) BackgroundDark else PrimaryYellow),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
@@ -455,7 +604,7 @@ private fun MacCmsUrlInput(
                         Text(
                             text = placeholder,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = TextSecondary
+                            color = if (isFocused) BackgroundDark.copy(alpha = 0.55f) else TextSecondary
                         )
                     }
                     innerTextField()

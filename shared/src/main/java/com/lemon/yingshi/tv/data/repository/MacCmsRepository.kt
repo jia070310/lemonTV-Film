@@ -1,8 +1,11 @@
 package com.lemon.yingshi.tv.data.repository
 
 import com.lemon.yingshi.tv.data.preferences.MacCmsPreferences
+import com.lemon.yingshi.tv.data.preferences.MacCmsCategorySortPreferences
+import com.lemon.yingshi.tv.data.preferences.PrivacyPreferences
 import com.lemon.yingshi.tv.data.remote.api.MacCmsApi
 import com.lemon.yingshi.tv.data.remote.model.MacCmsConnectionResult
+import com.lemon.yingshi.tv.data.remote.model.MacCmsServerEntry
 import com.lemon.yingshi.tv.data.remote.model.MacCmsFilterParams
 import com.lemon.yingshi.tv.data.remote.model.MacCmsListResponse
 import com.lemon.yingshi.tv.data.remote.model.MacCmsSortOption
@@ -38,9 +41,12 @@ data class MacCmsCategoryFetchResult(
 class MacCmsRepository @Inject constructor(
     private val macCmsApi: MacCmsApi,
     private val macCmsPreferences: MacCmsPreferences,
+    private val categorySortPreferences: MacCmsCategorySortPreferences,
+    private val privacyPreferences: PrivacyPreferences,
     private val okHttpClient: OkHttpClient
 ) {
     val serverUrl: Flow<String> = macCmsPreferences.serverUrl
+    val serverList: Flow<List<MacCmsServerEntry>> = macCmsPreferences.serverList
     val isConfigured: Flow<Boolean> = macCmsPreferences.isConfigured
 
     @Volatile
@@ -101,7 +107,9 @@ class MacCmsRepository @Inject constructor(
             throw IllegalStateException("未配置 MacCMS 服务器")
         }
 
-        if (!forceRefresh && cachedTaxonomy != null && cachedTaxonomyUrl == baseUrl) {
+        val activeUrl = getServerUrl()
+        val writeCache = baseUrl == activeUrl
+        if (!forceRefresh && writeCache && cachedTaxonomy != null && cachedTaxonomyUrl == baseUrl) {
             return cachedTaxonomy!!
         }
 
@@ -113,8 +121,10 @@ class MacCmsRepository @Inject constructor(
             throw IllegalStateException("服务器分类数据为空")
         }
 
-        cachedTaxonomy = taxonomy
-        cachedTaxonomyUrl = baseUrl
+        if (writeCache) {
+            cachedTaxonomy = taxonomy
+            cachedTaxonomyUrl = baseUrl
+        }
         return taxonomy
     }
 
@@ -147,18 +157,62 @@ class MacCmsRepository @Inject constructor(
 
     suspend fun getServerUrl(): String = macCmsPreferences.serverUrl.first()
 
-    suspend fun saveServerUrl(url: String) {
+    suspend fun saveServerUrl(url: String, name: String = "") {
         val oldUrl = getServerUrl()
         val normalizedNew = macCmsPreferences.normalizeBaseUrl(url)
-        macCmsPreferences.saveServerUrl(url)
+        macCmsPreferences.saveServerUrl(url, name)
+        privacyPreferences.ensureProfile(normalizedNew)
         if (oldUrl != normalizedNew) {
-            invalidateTaxonomyCache()
-            invalidateRecommendedCache()
-            invalidateVodDetailCache()
-            cachedPlayerShowNames = emptyMap()
-            cachedPlayerParseEndpoints = emptyList()
-            cachedPlayerConfigBaseUrl = null
+            onActiveServerChanged()
         }
+    }
+
+    suspend fun removeServer(url: String) {
+        val oldUrl = getServerUrl()
+        macCmsPreferences.removeServer(url)
+        privacyPreferences.removeProfile(url)
+        val newUrl = getServerUrl()
+        if (oldUrl != newUrl) {
+            onActiveServerChanged()
+        }
+    }
+
+    suspend fun failoverToAvailableServer(): String? = failoverMutex.withLock {
+        val current = getServerUrl()
+        val candidates = macCmsPreferences.getServerList()
+            .map { it.url }
+            .filter { it.isNotBlank() && it != current }
+            .distinct()
+        for (candidate in candidates) {
+            if (probeServerReachable(candidate)) {
+                saveServerUrl(candidate)
+                return@withLock candidate
+            }
+        }
+        null
+    }
+
+    suspend fun probeServerReachable(url: String): Boolean {
+        val baseUrl = macCmsPreferences.normalizeBaseUrl(url)
+        if (baseUrl.isBlank()) return false
+        return try {
+            val response = macCmsApi.fetchVodList(
+                buildListUrl(baseUrl, MacCmsFilterParams(page = 1, pageSize = 1))
+            )
+            response.isSuccessful && response.body()?.code == 1
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun onActiveServerChanged() {
+        invalidateTaxonomyCache()
+        invalidateRecommendedCache()
+        invalidateVodDetailCache()
+        cachedPlayerShowNames = emptyMap()
+        cachedPlayerParseEndpoints = emptyList()
+        cachedPlayerConfigBaseUrl = null
+        categorySortPreferences.clearHomeCategoryCache()
     }
 
     suspend fun testConnection(url: String? = null): MacCmsConnectionResult {
@@ -198,25 +252,47 @@ class MacCmsRepository @Inject constructor(
             val maccmsVersionLabel = MacCmsVersionDetector.formatVersionLabel(versionProbe)
             val categoryCount = taxonomy?.categoryCount ?: 0
             val apiSource = taxonomy?.sourceLabel
-            macCmsPreferences.saveConnectionTestResult(
-                status = "已连接",
-                siteName = baseUrl,
-                maccmsVersion = maccmsVersionLabel,
-                categoryCount = categoryCount,
-                apiSourceLabel = apiSource
-            )
             MacCmsConnectionResult(
                 success = true,
-                message = MacCmsErrorMessages.connectionSuccess(),
+                message = "连接成功",
                 categoryCount = categoryCount,
                 siteName = baseUrl,
                 apiSourceLabel = apiSource,
                 maccmsVersionLabel = maccmsVersionLabel
-            )
+            ).also {
+                macCmsPreferences.saveConnectionTestResult(
+                    status = "已连接",
+                    siteName = baseUrl,
+                    maccmsVersion = maccmsVersionLabel,
+                    categoryCount = categoryCount,
+                    apiSourceLabel = apiSource
+                )
+            }
         } catch (e: Exception) {
             val msg = MacCmsErrorMessages.fromThrowable(e, "网络异常")
             macCmsPreferences.saveConnectionTestResult(msg)
             MacCmsConnectionResult(success = false, message = msg)
+        }
+    }
+
+    suspend fun applyConnectionMeta(url: String, result: MacCmsConnectionResult) {
+        if (result.success) {
+            macCmsPreferences.updateServerMeta(
+                url = url,
+                lastStatus = "已连接",
+                version = result.maccmsVersionLabel,
+                categoryCount = result.categoryCount,
+                apiSource = result.apiSourceLabel
+            )
+            macCmsPreferences.saveConnectionTestResult(
+                status = "已连接",
+                siteName = result.siteName,
+                maccmsVersion = result.maccmsVersionLabel,
+                categoryCount = result.categoryCount,
+                apiSourceLabel = result.apiSourceLabel
+            )
+        } else {
+            macCmsPreferences.updateServerMeta(url, lastStatus = result.message)
         }
     }
 
@@ -290,7 +366,8 @@ class MacCmsRepository @Inject constructor(
         quickPreview: Boolean = false
     ): MacCmsCategoryFetchResult {
         val effectiveFullScan = if (quickPreview) false else fullScan
-        val all = if (homePreviewLimit != null || quickPreview) {
+        val forceQuick = quickPreview || (homePreviewLimit != null && !effectiveFullScan)
+        val all = if (forceQuick) {
             fetchAllRecommendedLevel9(level = level, fullScan = false)
         } else {
             val cached = peekRecommendedCache(level)
@@ -330,6 +407,7 @@ class MacCmsRepository @Inject constructor(
     private var cachedRecommendedFullScanComplete: Boolean = false
 
     private val recommendedFetchMutex = Mutex()
+    private val failoverMutex = Mutex()
 
     fun invalidateRecommendedCache() {
         cachedRecommendedItems = null
@@ -394,15 +472,6 @@ class MacCmsRepository @Inject constructor(
             return fetchRecommendedQuick(level, baseUrl)
         }
 
-        fetchRecommendedFromShowPage(baseUrl, level)?.let { fromShowPage ->
-            val sorted = fromShowPage.sortedWith(recommendedSortComparator)
-            cachedRecommendedItems = sorted
-            cachedRecommendedLevel = level
-            cachedRecommendedUrl = baseUrl
-            cachedRecommendedFullScanComplete = true
-            return sorted
-        }
-
         val firstResponse = fetchVodList(
             MacCmsFilterParams(
                 level = level,
@@ -441,16 +510,97 @@ class MacCmsRepository @Inject constructor(
             return cachedRecommendedItems.orEmpty()
         }
 
-        cachedRecommendedItems = sorted
+        val merged = linkedMapOf<Int, MacCmsVodItem>()
+        sorted.forEach { merged[it.vodId] = it }
+        mergeShowPageRecommendations(baseUrl, level, merged)
+        val complete = merged.values.sortedWith(recommendedSortComparator)
+
+        cachedRecommendedItems = complete
         cachedRecommendedLevel = level
         cachedRecommendedUrl = baseUrl
         cachedRecommendedFullScanComplete = fullScan || cachedRecommendedFullScanComplete
+        return complete
+    }
+
+    /**
+     * 首页预览走采集接口 `level=9`（此前可用的路径）。
+     * `/vod/show/level/9.html` 常缺条目，只作补漏，不当唯一数据源。
+     */
+    private suspend fun fetchRecommendedQuick(level: Int, baseUrl: String): List<MacCmsVodItem> {
+        val firstResponse = fetchRecommendedProvidePage(level)
+        if (firstResponse.code != 1) {
+            return cachedRecommendedItems.orEmpty()
+        }
+        if (firstResponse.list.isEmpty() && firstResponse.total <= 0) {
+            val showOnly = linkedMapOf<Int, MacCmsVodItem>()
+            mergeShowPageRecommendations(baseUrl, level, showOnly)
+            val sorted = showOnly.values.sortedWith(recommendedSortComparator)
+            cacheRecommendedResult(level, baseUrl, sorted, fullScanComplete = false)
+            return sorted
+        }
+
+        val collected = linkedMapOf<Int, MacCmsVodItem>()
+        val levelFromList = firstResponse.list.filter { it.vodLevel == level }
+        if (levelFromList.isNotEmpty()) {
+            absorbRecommendedListRows(baseUrl, levelFromList, collected)
+        }
+
+        val apiTotal = firstResponse.total
+        val serverFilterLooksValid = apiTotal in 1..RECOMMENDED_SERVER_FILTER_MAX_TOTAL
+        if (serverFilterLooksValid) {
+            if (collected.isEmpty()) {
+                absorbRecommendedListRows(baseUrl, firstResponse.list, collected)
+            }
+            var page = 2
+            while (collected.size < apiTotal && page <= RECOMMENDED_MAX_PAGES) {
+                val more = fetchVodList(
+                    MacCmsFilterParams(
+                        level = level,
+                        sort = MacCmsSortOption.LATEST,
+                        page = page,
+                        pageSize = RECOMMENDED_FETCH_PAGE_SIZE
+                    )
+                )
+                if (more.code != 1 || more.list.isEmpty()) break
+                val matched = more.list.filter { row ->
+                    row.vodLevel == null || row.vodLevel == 0 || row.vodLevel == level
+                }
+                absorbRecommendedListRows(
+                    baseUrl,
+                    if (levelFromList.isNotEmpty()) {
+                        more.list.filter { it.vodLevel == level }.ifEmpty { matched }
+                    } else {
+                        matched.ifEmpty { more.list }
+                    },
+                    collected
+                )
+                if (more.list.size < RECOMMENDED_FETCH_PAGE_SIZE) break
+                page++
+            }
+        }
+
+        if (collected.isEmpty()) {
+            absorbLevelMatchedRows(
+                baseUrl = baseUrl,
+                level = level,
+                rows = firstResponse.list.take(RECOMMENDED_QUICK_DETAIL_LIMIT),
+                collected = collected
+            )
+        }
+
+        mergeShowPageRecommendations(baseUrl, level, collected)
+        val sorted = collected.values.sortedWith(recommendedSortComparator)
+        cacheRecommendedResult(level, baseUrl, sorted, fullScanComplete = false)
         return sorted
     }
 
-    /** 首页/手机推荐：优先 API 列表，最多扫 3 页，无匹配立即结束 */
-    private suspend fun fetchRecommendedQuick(level: Int, baseUrl: String): List<MacCmsVodItem> {
-        val firstResponse = fetchVodList(
+    /** 优先 videolist（含 vod_level）；否则 ac=list&level=9。不把未筛选的最新列表当成推荐。 */
+    private suspend fun fetchRecommendedProvidePage(level: Int): MacCmsListResponse {
+        val videoList = fetchProvideByAc(ac = "videolist", level = level)
+        if (videoList.code == 1 && videoList.list.any { it.vodLevel == level }) {
+            return videoList
+        }
+        return fetchVodList(
             MacCmsFilterParams(
                 level = level,
                 sort = MacCmsSortOption.LATEST,
@@ -458,32 +608,24 @@ class MacCmsRepository @Inject constructor(
                 pageSize = RECOMMENDED_FETCH_PAGE_SIZE
             )
         )
-        if (firstResponse.code != 1) {
-            return cachedRecommendedItems.orEmpty()
-        }
-        if (firstResponse.list.isEmpty() && firstResponse.total <= 0) {
-            cacheRecommendedResult(level, baseUrl, emptyList(), fullScanComplete = false)
-            return emptyList()
-        }
+    }
 
-        val levelFromList = firstResponse.list.filter { it.vodLevel == level }
-        if (levelFromList.isNotEmpty()) {
-            val sorted = prepareListForDisplay(baseUrl, levelFromList)
-                .sortedWith(recommendedSortComparator)
-            cacheRecommendedResult(level, baseUrl, sorted, fullScanComplete = false)
-            return sorted
+    private suspend fun fetchProvideByAc(ac: String, level: Int): MacCmsListResponse {
+        val baseUrl = getServerUrl()
+        if (baseUrl.isBlank()) {
+            return MacCmsListResponse(code = 0, msg = "未配置 MacCMS 服务器")
         }
-
-        if (firstResponse.total in 1..RECOMMENDED_SERVER_FILTER_MAX_TOTAL) {
-            val sorted = prepareListForDisplay(baseUrl, firstResponse.list)
-                .sortedWith(recommendedSortComparator)
-            cacheRecommendedResult(level, baseUrl, sorted, fullScanComplete = false)
-            return sorted
+        return try {
+            val url = "$baseUrl/api.php/provide/vod/?ac=$ac&pg=1&pagesize=$RECOMMENDED_FETCH_PAGE_SIZE&level=$level"
+            val response = macCmsApi.fetchVodList(url)
+            if (!response.isSuccessful) {
+                return MacCmsListResponse(code = 0, msg = MacCmsErrorMessages.httpFailure(response.code()))
+            }
+            val body = response.body() ?: MacCmsListResponse(code = 0, msg = "空响应")
+            body.copy(list = body.list.map { resolveItemAssets(baseUrl, it) })
+        } catch (e: Exception) {
+            MacCmsListResponse(code = 0, msg = MacCmsErrorMessages.fromThrowable(e, "加载失败"))
         }
-
-        // 快速预览：服务端未按 level 筛选且无首屏匹配，视为无推荐接口/无推荐数据，不 deep scan
-        cacheRecommendedResult(level, baseUrl, emptyList(), fullScanComplete = false)
-        return emptyList()
     }
 
     private fun cacheRecommendedResult(
@@ -513,8 +655,16 @@ class MacCmsRepository @Inject constructor(
         val normalizedBase = macCmsPreferences.normalizeBaseUrl(baseUrl).trimEnd('/')
         if (normalizedBase.isBlank()) return null
 
-        val showUrl = "$normalizedBase/index.php/vod/show/level/$level.html"
-        val html = fetchHttpText(showUrl)?.take(SHOW_PAGE_HTML_MAX_CHARS).orEmpty()
+        val showUrls = listOf(
+            "$normalizedBase/index.php/vod/show/level/$level.html",
+            "$normalizedBase/index.php/vod/show/by/time/level/$level.html",
+            "$normalizedBase/vodshow/level/$level.html"
+        )
+        var html = ""
+        for (showUrl in showUrls) {
+            html = fetchHttpText(showUrl)?.take(SHOW_PAGE_HTML_MAX_CHARS).orEmpty()
+            if (html.isNotBlank() && SHOW_PAGE_VOD_ID_PATTERN.containsMatchIn(html)) break
+        }
         if (html.isBlank()) return null
 
         val vodIds = linkedSetOf<Int>()
@@ -532,10 +682,22 @@ class MacCmsRepository @Inject constructor(
         )
         val items = vodIds.mapNotNull { id ->
             val detail = detailMap[id] ?: return@mapNotNull null
-            if (detail.vodLevel != level) return@mapNotNull null
+            if (detail.vodLevel != null && detail.vodLevel != level) return@mapNotNull null
             resolveItemAssets(normalizedBase, detail)
         }
         return items.takeIf { it.isNotEmpty() }
+    }
+
+    private suspend fun mergeShowPageRecommendations(
+        baseUrl: String,
+        level: Int,
+        collected: LinkedHashMap<Int, MacCmsVodItem>
+    ) {
+        fetchRecommendedFromShowPage(baseUrl, level).orEmpty().forEach { item ->
+            if (!collected.containsKey(item.vodId)) {
+                collected[item.vodId] = item
+            }
+        }
     }
 
     /**
@@ -742,12 +904,14 @@ class MacCmsRepository @Inject constructor(
     private suspend fun mergeRecommendedFromRestLevelOrder(
         baseUrl: String,
         level: Int,
-        collected: LinkedHashMap<Int, MacCmsVodItem>
+        collected: LinkedHashMap<Int, MacCmsVodItem>,
+        maxPages: Int = Int.MAX_VALUE
     ) {
         var offset = 0
         val limit = REST_RECOMMENDED_LEVEL_PAGE_SIZE
         var pagesWithoutTargetLevel = 0
-        while (pagesWithoutTargetLevel < 2 && offset < REST_RECOMMENDED_LEVEL_SCAN_MAX) {
+        var pages = 0
+        while (pages < maxPages && pagesWithoutTargetLevel < 2 && offset < REST_RECOMMENDED_LEVEL_SCAN_MAX) {
             val rows = fetchRestVodListRows(baseUrl, offset, limit, orderby = "level")
             if (rows.isEmpty()) break
 
@@ -769,6 +933,7 @@ class MacCmsRepository @Inject constructor(
                 pagesWithoutTargetLevel = 0
             }
             offset += limit
+            pages++
         }
     }
 
@@ -914,6 +1079,7 @@ class MacCmsRepository @Inject constructor(
         private const val RECOMMENDED_QUICK_SCAN_MAX_PAGES = 3
         private const val RECOMMENDED_QUICK_IDLE_PAGE_LIMIT = 2
         private const val RECOMMENDED_FAST_STOP_COUNT = 12
+        private const val RECOMMENDED_QUICK_DETAIL_LIMIT = 20
         /** 升序补扫区间：前部早期推荐 + 后部页码（实测 47045 在第 172 页） */
         private val RECOMMENDED_ASC_SUPPLEMENT_PAGE_RANGES = listOf(1..8, 155..195)
         private const val RECOMMENDED_DETAIL_CHUNK_SIZE = 20

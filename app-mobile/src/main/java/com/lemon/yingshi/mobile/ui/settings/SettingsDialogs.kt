@@ -7,7 +7,10 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -18,6 +21,7 @@ import com.lemon.yingshi.mobile.databinding.DialogPrivacyKeywordsBinding
 import com.lemon.yingshi.mobile.databinding.DialogSettingsConfirmBinding
 import com.lemon.yingshi.mobile.databinding.DialogSettingsMenuBinding
 import com.lemon.yingshi.mobile.databinding.ItemCategorySortBinding
+import com.lemon.yingshi.tv.data.remote.model.MacCmsServerEntry
 
 object SettingsDialogs {
 
@@ -130,6 +134,9 @@ object SettingsDialogs {
         items: List<CategorySortItem>,
         isLoading: Boolean,
         errorMessage: String?,
+        servers: List<MacCmsServerEntry> = emptyList(),
+        selectedServerUrl: String = "",
+        onServerSelected: ((String) -> Unit)? = null,
         onSave: (List<CategorySortItem>) -> Unit
     ): Dialog {
         return showCategoryListDialog(
@@ -139,6 +146,9 @@ object SettingsDialogs {
             isLoading = isLoading,
             errorMessage = errorMessage,
             showReorder = false,
+            servers = servers,
+            selectedServerUrl = selectedServerUrl,
+            onServerSelected = onServerSelected,
             onSave = onSave
         )
     }
@@ -146,10 +156,18 @@ object SettingsDialogs {
     fun showPrivacyKeywordsDialog(
         context: Context,
         currentKeywords: String,
-        onSave: (String) -> Unit
+        servers: List<MacCmsServerEntry>,
+        selectedServerUrl: String,
+        onServerSelected: (serverUrl: String, applyKeywords: (String) -> Unit) -> Unit,
+        onSave: (serverUrl: String, keywords: String) -> Unit
     ): Dialog {
         val binding = DialogPrivacyKeywordsBinding.inflate(LayoutInflater.from(context))
         binding.keywordsInput.setText(currentKeywords)
+        var currentUrl = selectedServerUrl
+        bindServerSpinner(binding.serverSpinner, servers, selectedServerUrl) { url ->
+            currentUrl = url
+            onServerSelected(url) { binding.keywordsInput.setText(it) }
+        }
         val dialog = Dialog(context)
         dialog.setContentView(binding.root)
         styleDialogWindow(
@@ -158,7 +176,7 @@ object SettingsDialogs {
         )
         binding.cancelButton.setOnClickListener { dialog.dismiss() }
         binding.saveButton.setOnClickListener {
-            onSave(binding.keywordsInput.text?.toString().orEmpty())
+            onSave(currentUrl, binding.keywordsInput.text?.toString().orEmpty())
             dialog.dismiss()
         }
         dialog.show()
@@ -172,11 +190,22 @@ object SettingsDialogs {
         isLoading: Boolean,
         errorMessage: String?,
         showReorder: Boolean,
+        servers: List<MacCmsServerEntry> = emptyList(),
+        selectedServerUrl: String = "",
+        onServerSelected: ((String) -> Unit)? = null,
         onSave: (List<CategorySortItem>) -> Unit
     ): Dialog {
         val binding = DialogCategorySortBinding.inflate(LayoutInflater.from(context))
         val titleView = binding.root.getChildAt(0) as? TextView
         titleView?.setText(titleRes)
+        val showServerPicker = servers.isNotEmpty() && onServerSelected != null
+        binding.serverPickerLabel.isVisible = showServerPicker
+        binding.serverSpinner.isVisible = showServerPicker
+        if (showServerPicker) {
+            bindServerSpinner(binding.serverSpinner, servers, selectedServerUrl) { url ->
+                onServerSelected?.invoke(url)
+            }
+        }
 
         val editable = items.map { it.copy() }.toMutableList()
         val adapter = CategorySortAdapter(editable, showReorder)
@@ -217,6 +246,82 @@ object SettingsDialogs {
         }
         dialog.show()
         return dialog
+    }
+
+    private fun bindServerSpinner(
+        spinner: Spinner,
+        servers: List<MacCmsServerEntry>,
+        selectedServerUrl: String,
+        onServerSelected: (String) -> Unit
+    ) {
+        val adapter = ServerSpinnerAdapter(spinner.context, servers)
+        spinner.adapter = adapter
+        spinner.dropDownWidth = ViewGroup.LayoutParams.MATCH_PARENT
+        val index = servers.indexOfFirst { it.url == selectedServerUrl }.coerceAtLeast(0)
+        adapter.selectedUrl = servers.getOrNull(index)?.url.orEmpty()
+        spinner.setSelection(index, false)
+        var lastUrl = servers.getOrNull(index)?.url.orEmpty()
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val url = servers.getOrNull(position)?.url ?: return
+                adapter.selectedUrl = url
+                if (url == lastUrl) return
+                lastUrl = url
+                onServerSelected(url)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+    }
+
+    private class ServerSpinnerAdapter(
+        context: Context,
+        private val servers: List<MacCmsServerEntry>
+    ) : ArrayAdapter<MacCmsServerEntry>(context, 0, servers) {
+
+        var selectedUrl: String = servers.firstOrNull()?.url.orEmpty()
+
+        override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+            val view = convertView ?: LayoutInflater.from(context)
+                .inflate(R.layout.item_privacy_server_closed, parent, false)
+            bindRow(view, servers[position], collapsed = true, selected = false)
+            return view
+        }
+
+        override fun getDropDownView(
+            position: Int,
+            convertView: android.view.View?,
+            parent: ViewGroup
+        ): android.view.View {
+            val view = convertView ?: LayoutInflater.from(context)
+                .inflate(R.layout.item_privacy_server_dropdown, parent, false)
+            val entry = servers[position]
+            val selected = entry.url == selectedUrl
+            bindRow(view, entry, collapsed = false, selected = selected)
+            view.isActivated = selected
+            return view
+        }
+
+        private fun bindRow(
+            view: android.view.View,
+            entry: MacCmsServerEntry,
+            collapsed: Boolean,
+            selected: Boolean
+        ) {
+            val title = view.findViewById<TextView>(R.id.server_title)
+            val subtitle = view.findViewById<TextView>(R.id.server_subtitle)
+            val hasName = entry.name.isNotBlank()
+            title.text = if (hasName) entry.name else entry.url
+            title.setTextColor(
+                context.getColor(if (selected && !collapsed) R.color.primary_yellow else R.color.text_primary)
+            )
+            if (collapsed || !hasName) {
+                subtitle.isVisible = false
+            } else {
+                subtitle.isVisible = true
+                subtitle.text = entry.url
+            }
+        }
     }
 
     private class CategorySortAdapter(

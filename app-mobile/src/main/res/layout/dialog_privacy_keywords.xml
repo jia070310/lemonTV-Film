@@ -24,6 +24,21 @@
         android:textColor="@color/text_secondary"
         android:textSize="12sp" />
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="@string/settings_privacy_pick_server"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+
+    <Spinner
+        android:id="@+id/server_spinner"
+        style="@style/Widget.Lomen.PrivacySpinner"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="6dp" />
+
     <EditText
         android:id="@+id/keywords_input"
         android:layout_width="match_parent"

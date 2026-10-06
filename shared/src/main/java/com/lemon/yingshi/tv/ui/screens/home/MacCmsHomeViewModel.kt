@@ -173,6 +173,7 @@ class MacCmsHomeViewModel @Inject constructor(
             }
 
             try {
+                privacyPreferences.prepare()
                 val taxonomy = withContext(Dispatchers.IO) {
                     val raw = macCmsRepository.fetchTaxonomy(forceRefresh = forceRefresh)
                     val keywords = privacyPreferences.filterKeywords.first()
@@ -299,6 +300,19 @@ class MacCmsHomeViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (generation != homeLoadGeneration) return@launch
+                val switched = if (shouldFailover(e)) {
+                    withContext(Dispatchers.IO) {
+                        macCmsRepository.failoverToAvailableServer()
+                    }
+                } else {
+                    null
+                }
+                if (generation != homeLoadGeneration) return@launch
+                if (!switched.isNullOrBlank()) {
+                    // 当前源不可用时已切到备用源，serverUrl Flow 会触发重新 loadHome
+                    finishRefresh(generation)
+                    return@launch
+                }
                 _uiState.update {
                     MacCmsHomeUiState(
                         isLoading = false,
@@ -558,6 +572,13 @@ class MacCmsHomeViewModel @Inject constructor(
                 .drop(1)
                 .collect { loadHome(forceRefresh = true) }
         }
+    }
+
+    private fun shouldFailover(error: Exception): Boolean {
+        val message = error.message.orEmpty()
+        if (message.contains("未配置 MacCMS 服务器")) return false
+        if (MacCmsErrorMessages.isConnectionException(error)) return true
+        return message.contains("无法获取服务器分类") || message.contains("服务器分类数据为空")
     }
 
     private fun buildSection(

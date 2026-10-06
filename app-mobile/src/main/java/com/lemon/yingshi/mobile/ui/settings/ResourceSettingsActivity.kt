@@ -10,7 +10,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.ActivityResourceSettingsBinding
+import com.lemon.yingshi.mobile.databinding.ItemMacCmsServerBinding
 import com.lemon.yingshi.tv.data.remote.model.MacCmsConnectionResult
+import com.lemon.yingshi.tv.data.remote.model.MacCmsServerEntry
 import com.lemon.yingshi.tv.ui.viewmodel.MacCmsConfigViewModel
 import com.lemon.yingshi.mobile.util.setBackNavigation
 import dagger.hilt.android.AndroidEntryPoint
@@ -38,17 +40,35 @@ class ResourceSettingsActivity : AppCompatActivity() {
             viewModel.testConnection(binding.urlInput.text?.toString().orEmpty())
         }
         binding.saveButton.setOnClickListener {
-            viewModel.saveServerUrl(binding.urlInput.text?.toString().orEmpty())
+            viewModel.saveServerUrl(
+                binding.urlInput.text?.toString().orEmpty(),
+                binding.nameInput.text?.toString().orEmpty()
+            )
         }
     }
 
     private fun observeState() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.serverUrl.collect { url ->
-                    if (binding.urlInput.text?.toString().orEmpty() != url) {
-                        binding.urlInput.setText(url)
+                combine(
+                    viewModel.serverList,
+                    viewModel.serverUrl,
+                    viewModel.testingUrl
+                ) { list, current, testing ->
+                    Triple(list, current, testing)
+                }.collect { (list, current, testing) ->
+                    if (current.isNotBlank() && binding.urlInput.text?.toString().orEmpty() != current &&
+                        !binding.urlInput.hasFocus()
+                    ) {
+                        binding.urlInput.setText(current)
                     }
+                    val name = list.find { it.url == current }?.name.orEmpty()
+                    if (!binding.nameInput.hasFocus() &&
+                        binding.nameInput.text?.toString().orEmpty() != name
+                    ) {
+                        binding.nameInput.setText(name)
+                    }
+                    renderServerList(list, current, testing)
                 }
             }
         }
@@ -91,35 +111,6 @@ class ResourceSettingsActivity : AppCompatActivity() {
                 }
             }
         }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(
-                    combine(
-                        viewModel.lastTestStatus,
-                        viewModel.siteName,
-                        viewModel.maccmsVersion
-                    ) { status, siteName, version -> Triple(status, siteName, version) },
-                    combine(
-                        viewModel.savedCategoryCount,
-                        viewModel.savedApiSource,
-                        viewModel.testResult
-                    ) { categoryCount, apiSource, testResult ->
-                        Triple(categoryCount, apiSource, testResult)
-                    }
-                ) { meta, details ->
-                    ServerInfoState(
-                        lastTestStatus = meta.first,
-                        siteName = meta.second,
-                        version = meta.third,
-                        categoryCount = details.first,
-                        apiSource = details.second,
-                        testResult = details.third
-                    )
-                }.collect { state ->
-                    updateServerInfoCard(state)
-                }
-            }
-        }
     }
 
     private fun updateStatusUi(
@@ -127,7 +118,7 @@ class ResourceSettingsActivity : AppCompatActivity() {
         lastTestStatus: String,
         testResult: MacCmsConnectionResult?
     ) {
-        val isConnected = lastTestStatus == "已连接"
+        val isConnected = testResult?.success == true || lastTestStatus == "已连接"
         val dotDrawable = when {
             isTesting -> R.drawable.bg_status_dot_yellow
             isConnected -> R.drawable.bg_status_dot_green
@@ -142,36 +133,56 @@ class ResourceSettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateServerInfoCard(state: ServerInfoState) {
-        val isConnected = state.lastTestStatus == "已连接"
-        binding.serverInfoCard.isVisible = isConnected
-        if (!isConnected) return
-
-        val inputUrl = binding.urlInput.text?.toString().orEmpty()
-        val displaySite = state.siteName.ifBlank { inputUrl }
-        val displayCategoryCount = maxOf(
-            state.testResult?.categoryCount ?: 0,
-            state.categoryCount
-        )
-        val displayVersion = state.testResult?.maccmsVersionLabel?.takeIf { it.isNotBlank() }
-            ?: state.version.ifBlank { "—" }
-        val displayApiSource = state.testResult?.apiSourceLabel?.takeIf { it.isNotBlank() }
-            ?: state.apiSource.ifBlank { "—" }
-
-        binding.infoSiteText.text = getString(R.string.settings_info_site_format, displaySite)
-        binding.infoVersionText.text = getString(R.string.settings_info_version_format, displayVersion)
-        binding.infoCategoryCountText.text =
-            getString(R.string.settings_info_category_count_format, displayCategoryCount)
-        binding.infoCategorySourceText.text =
-            getString(R.string.settings_info_category_source_format, displayApiSource)
+    private fun renderServerList(
+        list: List<MacCmsServerEntry>,
+        currentUrl: String,
+        testingUrl: String = ""
+    ) {
+        binding.savedServersTitle.isVisible = list.isNotEmpty()
+        binding.serverListContainer.removeAllViews()
+        list.forEach { entry ->
+            val item = ItemMacCmsServerBinding.inflate(
+                layoutInflater,
+                binding.serverListContainer,
+                false
+            )
+            val active = entry.url == currentUrl
+            val title = buildString {
+                append(entry.name.ifBlank { entry.url })
+                if (active) append("  · ${getString(R.string.settings_server_current)}")
+            }
+            item.serverUrlText.text = title
+            val subtitle = buildList {
+                if (entry.name.isNotBlank()) add(entry.url)
+                add(entry.compactSummary().ifBlank { "未测试" })
+            }.joinToString(" · ")
+            item.serverStatusText.text = subtitle
+            item.serverStatusText.isVisible = true
+            item.root.setBackgroundResource(
+                if (active) R.drawable.bg_server_row_active else R.drawable.bg_settings_input
+            )
+            val rowTesting = testingUrl == entry.url
+            item.testItemButton.isEnabled = testingUrl.isBlank()
+            item.testItemButton.text = if (rowTesting) {
+                getString(R.string.settings_testing)
+            } else {
+                getString(R.string.settings_test_list)
+            }
+            item.testItemButton.setOnClickListener { viewModel.testConnection(entry.url) }
+            item.useButton.isVisible = !active
+            item.useButton.setOnClickListener {
+                binding.urlInput.setText(entry.url)
+                binding.nameInput.setText(entry.name)
+                viewModel.selectServer(entry.url)
+            }
+            item.deleteButton.setOnClickListener {
+                val label = entry.name.ifBlank { entry.url }
+                SettingsDialogs.showConfirmDialog(
+                    this,
+                    getString(R.string.settings_delete_server_confirm, label)
+                ) { viewModel.removeServer(entry.url) }
+            }
+            binding.serverListContainer.addView(item.root)
+        }
     }
-
-    private data class ServerInfoState(
-        val lastTestStatus: String,
-        val siteName: String,
-        val version: String,
-        val categoryCount: Int,
-        val apiSource: String,
-        val testResult: MacCmsConnectionResult?
-    )
 }

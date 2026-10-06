@@ -286,11 +286,16 @@ fun SettingsScreen(
     if (showClearPrivacyDialog) {
         val privacyViewModel: com.lemon.yingshi.tv.ui.viewmodel.PrivacySettingsViewModel =
             hiltViewModel()
+        val activeServer by privacyViewModel.activeServerUrl.collectAsState()
         ConfirmDialog(
             title = "清空隐私设置",
-            message = "确定清除全部敏感关键词与手动隐藏分类吗？",
+            message = if (activeServer.isBlank()) {
+                "确定清除当前播放源的敏感关键词与隐藏分类吗？"
+            } else {
+                "确定清除当前播放源「$activeServer」的敏感关键词与隐藏分类吗？其他服务器不受影响。"
+            },
             onConfirm = {
-                privacyViewModel.clearAll()
+                privacyViewModel.clearAll(activeServer)
                 showClearPrivacyDialog = false
                 showSuccessMessage = "隐私设置已清空"
             },

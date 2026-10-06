@@ -1,21 +1,18 @@
 package com.lemon.yingshi.mobile.ui.settings
 
+import android.app.Dialog
 import android.os.Bundle
-import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import com.lemon.yingshi.mobile.R
 import com.lemon.yingshi.mobile.databinding.ActivityPrivacySettingsBinding
 import com.lemon.yingshi.mobile.databinding.ItemProfileMenuBinding
 import com.lemon.yingshi.mobile.util.setBackNavigation
+import com.lemon.yingshi.tv.data.remote.model.MacCmsServerEntry
 import com.lemon.yingshi.tv.ui.viewmodel.PrivacySettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -23,6 +20,7 @@ class PrivacySettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPrivacySettingsBinding
     private val viewModel: PrivacySettingsViewModel by viewModels()
+    private var hideDialog: Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,7 +29,6 @@ class PrivacySettingsActivity : AppCompatActivity() {
 
         binding.toolbar.setBackNavigation { finish() }
         setupMenus()
-        observeSummaries()
     }
 
     private fun setupMenus() {
@@ -52,68 +49,80 @@ class PrivacySettingsActivity : AppCompatActivity() {
             android.R.drawable.ic_menu_delete,
             getString(R.string.settings_privacy_clear)
         ) {
+            val target = viewModel.activeServerUrl.value
             SettingsDialogs.showConfirmDialog(
                 context = this,
-                message = getString(R.string.settings_privacy_clear_confirm)
+                message = getString(
+                    R.string.settings_privacy_clear_confirm,
+                    target.ifBlank { getString(R.string.settings_privacy) }
+                )
             ) {
-                viewModel.clearAll()
+                viewModel.clearAll(target)
                 Toast.makeText(this, R.string.settings_cleared, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun observeSummaries() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(
-                    viewModel.filterKeywordsRaw,
-                    viewModel.hiddenTypeIds
-                ) { keywords, hidden -> keywords to hidden }
-                    .collect { (keywords, hidden) ->
-                        binding.menuKeywords.menuSubtitle.visibility = View.VISIBLE
-                        binding.menuKeywords.menuSubtitle.text = if (keywords.isBlank()) {
-                            getString(R.string.settings_privacy_keywords_empty)
-                        } else {
-                            getString(
-                                R.string.settings_privacy_keywords_current,
-                                keywords.take(40) + if (keywords.length > 40) "…" else ""
-                            )
-                        }
-                        binding.menuHideCategories.menuSubtitle.visibility = View.VISIBLE
-                        binding.menuHideCategories.menuSubtitle.text = if (hidden.isEmpty()) {
-                            getString(R.string.settings_privacy_hide_desc)
-                        } else {
-                            getString(R.string.settings_privacy_hide_count, hidden.size)
-                        }
-                        binding.menuClearPrivacy.menuSubtitle.visibility = View.GONE
-                    }
-            }
+    private fun servers(): List<MacCmsServerEntry> = viewModel.serverList.value
+
+    private fun defaultServerUrl(): String {
+        val list = servers()
+        val urls = list.map { it.url }
+        val active = viewModel.activeServerUrl.value
+        return when {
+            active.isNotBlank() && active in urls -> active
+            else -> urls.firstOrNull().orEmpty()
         }
     }
 
     private fun openKeywordsDialog() {
+        val list = servers()
+        if (list.isEmpty()) {
+            Toast.makeText(this, R.string.settings_privacy_no_server, Toast.LENGTH_SHORT).show()
+            return
+        }
         lifecycleScope.launch {
-            val current = viewModel.filterKeywordsRaw.first()
+            val selected = defaultServerUrl().ifBlank { list.first().url }
+            val current = viewModel.keywordsFor(selected)
             SettingsDialogs.showPrivacyKeywordsDialog(
                 context = this@PrivacySettingsActivity,
-                currentKeywords = current
-            ) { raw ->
-                viewModel.saveFilterKeywords(raw)
+                currentKeywords = current,
+                servers = list,
+                selectedServerUrl = selected,
+                onServerSelected = { url, applyKeywords ->
+                    lifecycleScope.launch {
+                        applyKeywords(viewModel.keywordsFor(url))
+                    }
+                }
+            ) { url, raw ->
+                viewModel.saveFilterKeywords(url, raw)
                 Toast.makeText(this@PrivacySettingsActivity, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun openHideDialog() {
+    private fun openHideDialog(initialUrl: String = defaultServerUrl()) {
+        val list = servers()
+        if (list.isEmpty()) {
+            Toast.makeText(this, R.string.settings_privacy_no_server, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val selected = initialUrl.ifBlank { list.first().url }
+        hideDialog?.dismiss()
         val loadingDialog = SettingsDialogs.showPrivacyHideDialog(
             context = this,
             items = emptyList(),
             isLoading = true,
             errorMessage = null,
+            servers = list,
+            selectedServerUrl = selected,
+            onServerSelected = { url -> openHideDialog(url) },
             onSave = {}
         )
+        hideDialog = loadingDialog
         lifecycleScope.launch {
-            val result = viewModel.loadHideCandidates()
+            val result = viewModel.loadHideCandidates(selected)
+            if (hideDialog !== loadingDialog) return@launch
             loadingDialog.dismiss()
             result.fold(
                 onSuccess = { rows ->
@@ -134,13 +143,15 @@ class PrivacySettingsActivity : AppCompatActivity() {
                         ).show()
                         return@fold
                     }
-                    SettingsDialogs.showPrivacyHideDialog(
+                    hideDialog = SettingsDialogs.showPrivacyHideDialog(
                         context = this@PrivacySettingsActivity,
                         items = items,
                         isLoading = false,
                         errorMessage = null,
+                        servers = list,
+                        selectedServerUrl = selected,
+                        onServerSelected = { url -> openHideDialog(url) },
                         onSave = { saved ->
-                            // 一级关闭时其子类已一并关闭；再扩展一次确保持久化完整
                             val hiddenIds = saved
                                 .filterNot { it.visible }
                                 .flatMap { item ->
@@ -148,7 +159,7 @@ class PrivacySettingsActivity : AppCompatActivity() {
                                         item.childKeys.mapNotNull { it.toIntOrNull() }
                                 }
                                 .toSet()
-                            viewModel.saveHiddenTypeIds(hiddenIds)
+                            viewModel.saveHiddenTypeIds(selected, hiddenIds)
                             Toast.makeText(
                                 this@PrivacySettingsActivity,
                                 R.string.settings_saved,

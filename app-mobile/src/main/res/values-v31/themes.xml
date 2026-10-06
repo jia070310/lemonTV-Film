@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ 会忽略全屏 windowBackground 图，改用系统 Splash：必须显式指定黄底和图标底色，否则模拟器会画出默认白底圆角方块。 -->
+    <style name="Theme.LomenMobile.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/primary_yellow</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/primary_yellow</item>
+        <item name="postSplashScreenTheme">@style/Theme.LomenMobile</item>
+        <item name="android:windowSplashScreenBackground">@color/primary_yellow</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/primary_yellow</item>
+        <item name="android:windowBackground">@color/primary_yellow</item>
+        <item name="android:statusBarColor">@color/primary_yellow</item>
+        <item name="android:navigationBarColor">@color/primary_yellow</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

@@ -56,6 +56,7 @@ class FilterViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 withContext(Dispatchers.IO) {
+                    privacyPreferences.prepare()
                     val configured = macCmsRepository.getServerUrl().isNotBlank()
                     if (!configured) {
                         _uiState.update {

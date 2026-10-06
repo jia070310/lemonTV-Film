@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>柠檬影视 · 资源管理</title>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#141414;color:#fff;}
+.wrap{max-width:640px;margin:0 auto;padding:20px 16px 48px;}
+h1{font-size:20px;margin:0 0 6px;}
+.sub{color:#888;font-size:13px;margin-bottom:16px;line-height:1.45;}
+.tabs{display:flex;gap:8px;margin-bottom:16px;}
+.tab{flex:1;height:40px;border:0;border-radius:20px;background:#2a2a2a;color:#fff;font-size:14px;font-weight:600;}
+.tab.on,.tab:hover,.tab:focus{background:#fddd0e;color:#141414;outline:none;}
+.page{display:none;}
+.page.on{display:block;}
+.card{background:#1e1e1e;border-radius:16px;padding:16px;}
+label{display:block;color:#888;font-size:13px;margin:0 0 8px;}
+input,select{width:100%;box-sizing:border-box;height:44px;border-radius:12px;border:1px solid #333;background:#141414;color:#fff;padding:0 12px;font-size:15px;}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,#888 50%),linear-gradient(135deg,#888 50%,transparent 50%);background-position:calc(100% - 18px) 18px,calc(100% - 12px) 18px;background-size:6px 6px,6px 6px;background-repeat:no-repeat;}
+.row{display:flex;gap:10px;margin-top:14px;}
+button{flex:1;height:44px;border:0;border-radius:22px;font-size:14px;font-weight:600;background:#2a2a2a;color:#fff;}
+button:hover,button:focus{background:#fddd0e;color:#141414;outline:none;}
+.msg{min-height:20px;margin-top:12px;font-size:13px;color:#fddd0e;}
+h2{font-size:15px;margin:22px 0 10px;color:#888;font-weight:500;}
+.item{background:#1e1e1e;border-radius:12px;padding:12px;margin-bottom:10px;border:1px solid #2a2a2a;}
+.item.active{border-color:#fddd0e;}
+.url{font-size:13px;word-break:break-all;}
+.meta{color:#888;font-size:12px;margin-top:4px;}
+.actions{display:flex;gap:8px;margin-top:10px;}
+.actions button{height:36px;font-size:13px;}
+.badge{display:inline-block;background:#fddd0e;color:#141414;border-radius:8px;padding:1px 6px;font-size:11px;margin-left:6px;}
+.hint{color:#888;font-size:12px;line-height:1.45;margin:-2px 0 12px;}
+.block{margin-top:18px;}
+.cats{max-height:min(52vh,420px);overflow:auto;-webkit-overflow-scrolling:touch;padding-right:2px;}
+.cat{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#141414;border-radius:12px;padding:10px 12px;margin-bottom:6px;min-height:44px;}
+.cat.sub{margin-left:14px;}
+.cat-name{font-size:14px;line-height:1.3;word-break:break-all;}
+.sw{flex:none;width:46px;height:28px;border-radius:14px;background:#444;position:relative;border:0;padding:0;}
+.sw i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .15s;}
+.sw.on{background:#22c55e;}
+.sw.on i{left:21px;}
+.sw:hover,.sw:focus{background:#22c55e;outline:none;color:inherit;}
+.sw:not(.on):hover,.sw:not(.on):focus{background:#666;}
+.danger:hover,.danger:focus{background:#ef4444;color:#fff;}
+.empty{color:#888;font-size:13px;padding:8px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>资源后台管理</h1>
+  <div class="sub">用手机或电脑配置服务器与隐私规则。测试不会写入列表；隐私按每条源单独保存。</div>
+  <div class="tabs">
+    <button class="tab on" id="tab-resource" onclick="showPage('resource')">资源</button>
+    <button class="tab" id="tab-privacy" onclick="showPage('privacy')">隐私</button>
+  </div>
+
+  <div class="page on" id="page-resource">
+    <div class="card">
+      <label>服务器名称</label>
+      <input id="name" placeholder="例如：红牛资源、备用源"/>
+      <label style="margin-top:12px;">服务器地址</label>
+      <input id="url" placeholder="https://your-maccms.com" inputmode="url"/>
+      <div class="row">
+        <button onclick="testUrl()">测试连通性</button>
+        <button onclick="saveUrl()">保存配置</button>
+      </div>
+      <div class="msg" id="msg"></div>
+    </div>
+    <h2>已保存的服务器</h2>
+    <div id="list"></div>
+  </div>
+
+  <div class="page" id="page-privacy">
+    <div class="card">
+      <label>选择服务器</label>
+      <select id="privacyServer" onchange="loadPrivacy()"></select>
+      <div class="hint" style="margin-top:8px;">先选源，再改关键词或隐藏分类。保存只作用于当前选中的源。</div>
+
+      <div class="block">
+        <label>敏感关键词过滤</label>
+        <div class="hint">多个词用英文逗号分隔，例如：伦理,福利,写真。分类名包含任一关键词时会在首页与片库隐藏。</div>
+        <input id="keywords" placeholder="例如：伦理,福利,写真"/>
+        <div class="row">
+          <button onclick="saveKeywords()">保存关键词</button>
+        </div>
+      </div>
+
+      <div class="block">
+        <label>隐藏分类</label>
+        <div class="hint">开关关闭表示隐藏。关闭一级时，其下二级会一并关闭。</div>
+        <div class="cats" id="cats"><div class="empty">加载中…</div></div>
+        <div class="row">
+          <button onclick="saveHidden()">保存隐藏分类</button>
+          <button class="danger" onclick="clearPrivacy()">清空该源隐私</button>
+        </div>
+      </div>
+      <div class="msg" id="privacyMsg"></div>
+    </div>
+  </div>
+</div>
+<script>
+const msgEl = document.getElementById('msg');
+const urlEl = document.getElementById('url');
+const nameEl = document.getElementById('name');
+const privacyMsgEl = document.getElementById('privacyMsg');
+const serverEl = document.getElementById('privacyServer');
+const keywordsEl = document.getElementById('keywords');
+const catsEl = document.getElementById('cats');
+let privacyCats = [];
+
+function show(t){ msgEl.textContent = t || ''; }
+function pshow(t){ privacyMsgEl.textContent = t || ''; }
+function esc(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function attrEsc(s){ return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function summaryOf(r, alreadySaved){
+  if(!r || !r.success) return r && r.message ? r.message : '测试失败';
+  var parts = [r.message || '连接成功'];
+  if(r.maccmsVersionLabel) parts.push(r.maccmsVersionLabel);
+  if(r.categoryCount) parts.push(r.categoryCount + '分类');
+  return alreadySaved ? parts.join(' · ') : (parts.join(' · ') + '。请点击保存配置写入列表');
+}
+async function api(path, body){
+  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json; charset=utf-8'}, body: JSON.stringify(body)} : {};
+  const res = await fetch(path, opt);
+  return await res.json();
+}
+function showPage(name){
+  document.getElementById('page-resource').classList.toggle('on', name === 'resource');
+  document.getElementById('page-privacy').classList.toggle('on', name === 'privacy');
+  document.getElementById('tab-resource').classList.toggle('on', name === 'resource');
+  document.getElementById('tab-privacy').classList.toggle('on', name === 'privacy');
+  if (name === 'privacy') loadPrivacy();
+}
+async function load(){
+  const s = await api('/api/state');
+  if (s.current && !urlEl.value) urlEl.value = s.current;
+  if (s.current && !nameEl.value) {
+    var cur = (s.servers||[]).find(function(x){ return x.url === s.current; });
+    if (cur && cur.name) nameEl.value = cur.name;
+  }
+  const list = document.getElementById('list');
+  const rows = (s.servers||[]).map(function(item){
+    var useBtn = item.active ? '' : '<button onclick="selectUrl(\'' + attrEsc(item.url) + '\')">使用</button>';
+    var badge = item.active ? '<span class="badge">当前</span>' : '';
+    var title = esc(item.name || item.url) + badge;
+    var meta = (item.name ? esc(item.url) + ' · ' : '') + esc(item.summary || '未测试');
+    return '<div class="item ' + (item.active ? 'active' : '') + '">' +
+      '<div class="url">' + title + '</div>' +
+      '<div class="meta">' + meta + '</div>' +
+      '<div class="actions">' +
+      '<button onclick="testSaved(\'' + attrEsc(item.url) + '\')">测试</button>' +
+      useBtn +
+      '<button onclick="deleteUrl(\'' + attrEsc(item.url) + '\')">删除</button></div></div>';
+  }).join('');
+  list.innerHTML = rows || '<div class="meta">暂无服务器</div>';
+  fillServerSelect(s.servers || [], s.current);
+}
+function fillServerSelect(servers, current){
+  var keep = serverEl.value;
+  var html = (servers||[]).map(function(item){
+    var mark = item.active ? '（播放中）' : '';
+    var label = (item.name ? item.name + ' · ' : '') + item.url + mark;
+    return '<option value="' + esc(item.url) + '">' + esc(label) + '</option>';
+  }).join('');
+  serverEl.innerHTML = html || '<option value="">请先保存服务器</option>';
+  var pick = keep || current || '';
+  if (pick) serverEl.value = pick;
+}
+async function testUrl(){
+  show('测试中…');
+  try {
+    const r = await api('/api/test', {url: urlEl.value});
+    show(summaryOf(r, false));
+  } catch(e){ show('测试失败'); }
+}
+async function saveUrl(){
+  show('保存中…');
+  try {
+    await api('/api/save', {url: urlEl.value, name: nameEl.value});
+    show('已保存并设为当前服务器');
+    load();
+  } catch(e){ show('保存失败'); }
+}
+async function selectUrl(url){
+  await api('/api/select', {url: url});
+  urlEl.value = url;
+  nameEl.value = '';
+  show('已切换到该服务器');
+  load();
+}
+async function testSaved(url){
+  show('测试中…');
+  try {
+    const r = await api('/api/test', {url: url});
+    show(summaryOf(r, true));
+    load();
+  } catch(e){ show('测试失败'); }
+}
+async function deleteUrl(url){
+  if(!confirm('确定删除「' + url + '」吗？删除后将从已保存列表中移除。')) return;
+  await api('/api/delete', {url: url});
+  show('已删除');
+  load();
+}
+async function loadPrivacy(){
+  const url = serverEl.value;
+  if (!url) {
+    keywordsEl.value = '';
+    privacyCats = [];
+    catsEl.innerHTML = '<div class="empty">请先在资源页保存服务器</div>';
+    pshow('');
+    return;
+  }
+  pshow('正在加载该源的分类…');
+  try {
+    const data = await fetch('/api/privacy?url=' + encodeURIComponent(url)).then(function(r){ return r.json(); });
+    fillServerSelect(data.servers || [], data.url);
+    if (data.url) serverEl.value = data.url;
+    keywordsEl.value = data.keywords || '';
+    privacyCats = (data.categories || []).map(function(row){
+      return Object.assign({}, row, { hidden: !!row.hidden });
+    });
+    renderCats();
+    pshow(privacyCats.length ? '' : '该源暂无分类，请先在资源页测试连接');
+  } catch(e) {
+    pshow('加载失败');
+  }
+}
+function renderCats(){
+  if (!privacyCats.length) {
+    catsEl.innerHTML = '<div class="empty">暂无分类</div>';
+    return;
+  }
+  catsEl.innerHTML = privacyCats.map(function(row, index){
+    var on = row.hidden ? '' : ' on';
+    return '<div class="cat' + (row.isSecondary ? ' sub' : '') + '">' +
+      '<div class="cat-name">' + esc(row.displayName || row.label) + '</div>' +
+      '<button type="button" class="sw' + on + '" onclick="toggleCat(' + index + ')" aria-label="显示或隐藏"><i></i></button>' +
+      '</div>';
+  }).join('');
+}
+function toggleCat(index){
+  var item = privacyCats[index];
+  if (!item) return;
+  var hide = !item.hidden;
+  var next = {};
+  privacyCats.forEach(function(row){ if (row.hidden) next[row.typeId] = true; });
+  if (hide) {
+    next[item.typeId] = true;
+    (item.childTypeIds || []).forEach(function(id){ next[id] = true; });
+  } else {
+    delete next[item.typeId];
+    (item.childTypeIds || []).forEach(function(id){ delete next[id]; });
+    if (item.parentTypeId) delete next[item.parentTypeId];
+  }
+  privacyCats.forEach(function(row){
+    if (!row.isSecondary && next[row.typeId]) {
+      (row.childTypeIds || []).forEach(function(id){ next[id] = true; });
+    }
+  });
+  privacyCats.forEach(function(row){ row.hidden = !!next[row.typeId]; });
+  renderCats();
+}
+function hiddenIds(){
+  return privacyCats.filter(function(row){ return row.hidden; }).map(function(row){ return row.typeId; });
+}
+async function saveKeywords(){
+  const url = serverEl.value;
+  if (!url) { pshow('请先选择服务器'); return; }
+  pshow('保存中…');
+  try {
+    await api('/api/privacy/keywords', {url: url, keywords: keywordsEl.value});
+    pshow('关键词已保存到该源');
+  } catch(e) { pshow('保存失败'); }
+}
+async function saveHidden(){
+  const url = serverEl.value;
+  if (!url) { pshow('请先选择服务器'); return; }
+  pshow('保存中…');
+  try {
+    await api('/api/privacy/hidden', {url: url, hiddenTypeIds: hiddenIds()});
+    pshow('隐藏分类已保存到该源');
+  } catch(e) { pshow('保存失败'); }
+}
+async function clearPrivacy(){
+  const url = serverEl.value;
+  if (!url) { pshow('请先选择服务器'); return; }
+  if (!confirm('确定清除该源的敏感关键词与隐藏分类？其他服务器不受影响。')) return;
+  pshow('清除中…');
+  try {
+    const data = await api('/api/privacy/clear', {url: url});
+    keywordsEl.value = data.keywords || '';
+    privacyCats = (data.categories || []).map(function(row){
+      return Object.assign({}, row, { hidden: !!row.hidden });
+    });
+    renderCats();
+    pshow('该源隐私设置已清空');
+  } catch(e) { pshow('清除失败'); }
+}
+load();
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@
     <dimen name="carousel_item_width">140dp</dimen>
     <dimen name="card_spacing">12dp</dimen>
     <dimen name="section_spacing">24dp</dimen>
+    <dimen name="splash_logo_size">120dp</dimen>
     <dimen name="toolbar_height">44dp</dimen>
     <dimen name="toolbar_title_size">16sp</dimen>
 </resources>

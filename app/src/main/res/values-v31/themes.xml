@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.LomenTV.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/primary_yellow</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/primary_yellow</item>
+        <item name="postSplashScreenTheme">@style/Theme.LomenTV</item>
+        <item name="android:windowSplashScreenBackground">@color/primary_yellow</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/primary_yellow</item>
+        <item name="android:windowBackground">@color/primary_yellow</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">false</item>
+    </style>
+</resources>

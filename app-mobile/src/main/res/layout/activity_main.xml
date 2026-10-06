@@ -41,13 +41,23 @@
         android:id="@+id/splash_overlay"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="@drawable/ic_splash"
+        android:background="@color/primary_yellow"
         android:clickable="true"
         android:elevation="16dp"
         android:focusable="true"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:layout_width="@dimen/splash_logo_size"
+            android:layout_height="@dimen/splash_logo_size"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            android:src="@drawable/splash_logo" />
+    </FrameLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
